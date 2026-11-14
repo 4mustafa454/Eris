@@ -29,8 +29,7 @@ Connect the user's own AI agent to Chert (YC P26 FaceTime/iMessage agent API) so
 - The "turnDetection is a TurnDetector, but the LLM is a RealtimeModel..." warning in the agent log is harmless (LiveKit ignores its own detector in favor of the server-side one).
 
 ## Open items / next steps
-- **GitHub repo**: creating a repo from the Claude session was blocked (API token not valid / sessions bound to configured repos). User must create an empty private repo (e.g. `chert-facetime-agent`) on github.com and run:
-  `git remote add origin https://github.com/<user>/chert-facetime-agent.git && git push -u origin main`
+- **GitHub repo**: done. Private repo `4mustafa454/my-agent`, branch `main`, remote `origin`.
 - Live-test the Nova rewrite with a FaceTime Audio call; tune `instructions`, `eagerness`, or `silence_duration_ms` if it still cuts off.
 - Customize the persona for the actual hackathon idea (edit `instructions` and `greeting` in `agent.mjs`).
 - Optional: publish a video track (`chert new my-agent --video` pattern) if the agent should appear on camera.

@@ -1,7 +1,18 @@
 # Starter voice agent
 
 A voice agent you can call on FaceTime through Chert. It is a standalone Node
-application built on LiveKit Agents 1.8.0 and the OpenAI Realtime model. Node 22.23.2 or later, Node 24 or Node 26 is required.
+application built on LiveKit Agents 1.8.0 and the OpenAI Realtime model. Node 22.23.2 or later is supported; **Node 24 is recommended** (Node 26 can fail to load LiveKit's native bindings).
+
+## Requirements
+- **Node 24** (see above) and npm.
+- **The `chert` CLI** and your own Chert account (the line is yours, it does not carry over from anyone else):
+  ```sh
+  npm install -g @trychert/facetime@0.1.0-beta.21   # or run it with: npx --yes @trychert/facetime@0.1.0-beta.21 <command>
+  chert login
+  ```
+- **A LiveKit Cloud project** (URL, API key, API secret from the same project) and an **OpenAI API key** with Realtime access and credits. Keys go in `.env.local`, never in git.
+- **Callers need FaceTime** (an Apple device). The agent itself is plain Node and runs on your machine; Chert's own Mac answers the call and bridges it to your agent.
+- **One agent name everywhere.** `AGENT_NAME` in `.env.local` must match what the agent registers with LiveKit and what you pass to `chert dev --agent` (this repo uses `my_agent`). A mismatch makes `chert doctor` say the agent "did not join".
 
 ## Run it
 

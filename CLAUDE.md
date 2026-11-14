@@ -13,7 +13,7 @@ Read this file first. Deeper context lives in `docs/`:
 - Fully working end to end: a real FaceTime call connected, Chert answered in 0.0 s, the agent greeted and held a ~4 minute conversation.
 - Agent personality was rewritten to "Nova" (warm, short spoken turns) with `semantic_vad` low-eagerness turn detection to reduce cutoffs. The original is `agent.mjs.bak` (git-ignored, local only).
 - Not yet re-tested by live call after the Nova rewrite.
-- Git repo initialized locally on `main`. No GitHub remote yet (see docs/PROJECT_CONTEXT.md, "Next steps").
+- Git repo on `main`, pushed to the private GitHub repo `4mustafa454/my-agent` (origin).
 
 ## Run it (two terminals, same folder)
 ```sh

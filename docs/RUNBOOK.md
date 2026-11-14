@@ -33,3 +33,14 @@ git add -A && git commit -m "message"
 git push
 ```
 `.env.local` is ignored; verify with `git status` that it never appears.
+
+## Fresh machine setup
+```sh
+brew install node@24 && export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+npm install -g @trychert/facetime@0.1.0-beta.21
+git clone https://github.com/4mustafa454/my-agent.git && cd my-agent
+npm install
+cp .env.example .env.local && chmod 600 .env.local   # fill in LiveKit + OpenAI keys, AGENT_NAME=my_agent
+chert login                                          # approve in the browser
+```
+Then follow "Start" above. Secrets are never in git; keep a private backup of `.env.local`.
