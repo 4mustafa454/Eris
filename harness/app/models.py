@@ -31,7 +31,7 @@ class Task(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1)
     instruction: str = Field(min_length=1, max_length=20000)
     agent_id: str | None = None
     session_id: str | None = None

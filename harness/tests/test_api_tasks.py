@@ -254,3 +254,9 @@ def test_new_task_does_not_jump_an_existing_queued_task(client):
     assert response.status_code == 200 and response.json()['status'] == 'queued'
     assert agent(client, 'agent-3')['task'] == 'Older'
     assert sql("SELECT status FROM tasks WHERE id = 'older'")[0]['status'] == 'working'
+
+
+def test_task_title_does_not_have_an_uncontracted_length_limit(client):
+    title = 'Long task title ' * 20
+    response = client.post('/tasks', json={'title': title, 'instruction': 'Do the task.'})
+    assert response.status_code == 200 and response.json()['title'] == title.strip()
