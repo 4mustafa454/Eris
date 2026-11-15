@@ -3,6 +3,7 @@ import { LiveProvider, useLive } from './lib/store'
 import Live from './pages/Live'
 import Approvals from './pages/Approvals'
 import Conversations from './pages/Conversations'
+import Tasks from './pages/Tasks'
 
 const TABS = [
   { id: 'live', label: 'Live' },
@@ -64,7 +65,8 @@ function Shell() {
         {tab === 'live' && <Live />}
         {tab === 'approvals' && <Approvals />}
         {tab === 'conversations' && <Conversations />}
-        {tab !== 'live' && tab !== 'approvals' && tab !== 'conversations' && <p className="text-muted">Coming next.</p>}
+        {tab === 'tasks' && <Tasks />}
+        {tab !== 'live' && tab !== 'approvals' && tab !== 'conversations' && tab !== 'tasks' && <p className="text-muted">Coming next.</p>}
       </main>
     </div>
   )
