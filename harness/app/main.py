@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from . import db
 from .routes import agents as agents_routes
+from .routes import context as context_routes
 from .routes import sessions as sessions_routes
 from .workers import mock
 
@@ -33,3 +34,4 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Eris harness", lifespan=lifespan)
 app.include_router(agents_routes.router)
 app.include_router(sessions_routes.router)
+app.include_router(context_routes.router)
