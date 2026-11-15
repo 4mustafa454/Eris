@@ -49,11 +49,22 @@ Rehearsal in Agent Console and the real demo differ in these places only.
 `harness/.env`
 
 ```sh
-REAL_WORKERS=agent-1          # comma-separated ids; only claude-code agents are supported, e.g. agent-1,agent-2.
-                              # Every other agent stays a mock. A bad id stops startup naming the variable.
-CLAUDE_CODE_OAUTH_TOKEN=...   # from `claude setup-token`; never paste it into a prompt or chat
+REAL_WORKERS=agent-1,agent-3  # comma-separated ids. Both engines are supported: agent-1 and agent-2 are Claude Code,
+                              # agent-3 is Codex. Every id not listed stays a mock. A bad or unsupported id stops
+                              # startup naming the variable.
+CLAUDE_CODE_OAUTH_TOKEN=...   # Claude workers: from `claude setup-token`; never paste it into a prompt or chat
 NTFY_TOPIC=<your topic>       # alerts + "Call recap" go here
+# Codex workers (defaults shown; usually leave unset): CODEX_WORKER_IMAGE=eris-codex:0.167.2,
+# CODEX_MODEL=gpt-6.1-terra, CODEX_REASONING=medium
 ```
+
+Codex worker prerequisites (one-time):
+
+- Build the image: `scripts/build-codex-worker.sh` (Claude workers: `scripts/build-worker.sh`).
+- Sign in on the host with `codex login` (ChatGPT account). The Codex container gets the host's `~/.codex/auth.json`
+  as a **read-only bind mount** (`docker.py`); there is no token in an env var, image or command line. Because it is
+  read-only, a token refresh can only happen on the host, never from inside the container. (`/AGENTS.md` §7 still says
+  "read-write"; the code is read-only, which is the safer of the two.) Treat the file as a password: never commit or paste it.
 
 Validate it without starting anything: `cd harness && .venv/bin/python -m app.config`.
 
@@ -64,12 +75,22 @@ Restart the supervisor and `chert dev` after editing `.env.local`.
 
 Do these in order, no more than ~15 minutes before the call.
 
-- [ ] **Docker + worker image ready:** `scripts/build-worker.sh` has been run once; Docker is running.
+- [ ] **Docker + worker images ready:** `scripts/build-worker.sh` and `scripts/build-codex-worker.sh` have been run once; Docker is running.
+- [ ] **Codex token refresh check (do this the same day, before the call).** Run a tiny Codex task on the host, then through the worker:
+      ```sh
+      codex exec "reply with the single word ok"        # on the host: refreshes ~/.codex/auth.json if it is stale
+      curl -X POST localhost:8787/agents/agent-3/task -H 'content-type: application/json' \
+        -d '{"instruction":"Reply with the single word ok. Do not change any files."}'
+      curl -s localhost:8787/agents/agent-3/log          # expect a short line or two, no auth/login error
+      ```
+      The container's copy of the token is read-only and cannot refresh itself, so an expired token would only show up
+      mid-demo as an error on agent-3. If it fails, run `codex login` on the host and repeat. Start the harness for this (section 1, terminal 1)
+      and **stop it again before the reset below**, which wipes the tiny task.
 - [ ] **Reset the data** (stop the harness first; the script refuses to run while it answers):
-      `scripts/seed-demo.sh --yes --with-approval=agent-3`
+      `scripts/seed-demo.sh --yes --with-approval=agent-2`
       This wipes the dev DB (so test calls do not appear in the recap), rebuilds `demo-repo/` with its failing test,
-      removes old worker containers, and then creates one pending `git_push` approval for `agent-3`
-      (a mock agent, which becomes "Awaiting approval"). Use another agent id after `=` if you like; the default is `agent-1`,
+      removes old worker containers, and then creates one pending `git_push` approval for `agent-2`
+      (a mock agent when `REAL_WORKERS=agent-1,agent-3`; it becomes "Awaiting approval". An idle real agent would not). Use another agent id after `=` if you like; the default is `agent-1`,
       which you do **not** want here because `agent-1` is the one that gets stuck for real.
 - [ ] Start the harness, supervisor and dashboard (section 1), then confirm: `curl -s localhost:8787/agents` shows three agents,
       and `curl -s 'localhost:8787/approvals?status=pending'` shows one.
@@ -96,11 +117,11 @@ Say the quoted lines. The PM answers in one or two sentences by design; do not w
 
 | # | You do / say | The PM does | On screen (the PM's video on the phone) |
 |---|---|---|---|
-| 1 | Call the Eris number on **FaceTime Video**. Say nothing. | Speaks the greeting within 10 s of `bridge_ready`: a recap of the last call plus what needs attention, e.g. a stuck agent and the pending push. | Portrait grid of 3 agent tiles, colour badge per state. Agent 1 shows stuck; the approval banner ("Approval: Agent 3 · git_push, Say approve or deny") is already up if you seeded it. |
+| 1 | Call the Eris number on **FaceTime Video**. Say nothing. | Speaks the greeting within 10 s of `bridge_ready`: a recap of the last call plus what needs attention, e.g. a stuck agent and the pending push. | Portrait grid of 3 agent tiles, colour badge per state. Agent 1 shows stuck; the approval banner ("Approval: Agent 2 · git_push, Say approve or deny") is already up if you seeded it. |
 | 2 | "What's everyone doing?" | Calls `get_status`; one or two sentences covering all three agents. | Grid unchanged. |
-| 3 | "Show me agent 2." Then "Tell agent 2 to commit after each passing test." | `focus_agent`, then `send_task`: "Told agent 2." | Full-screen Agent 2 with its last lines and state. A `send_task` row is written to the session. |
+| 3 | "Show me agent 3." Then "Tell agent 3 to add tests for the billing module." | `focus_agent`, then `send_task`: agent 3 (the Codex worker) is idle, so this starts a new task: "Told agent 3." Do **not** steer Agent 2 here: it is waiting on the approval in step 5 and steering would clear that. | Full-screen Agent 3 with its last lines and state turning to working. A `send_task` row is written to the session. |
 | 4 | "Show me the grid." Then "What's wrong with agent 1?" Then answer: "Tell it to use the v2 endpoint." | `explain_agent` (one sentence: it asks v1 or v2), then `send_task` steers the same task: "Told agent 1." | Agent 1's tile goes from the stuck colour back to working, then green when it commits. |
-| 5 | The PM says "Agent 3 wants to push. Approve?" (if it does not, ask "anything waiting on me?"). Say: "Approve." | Calls `decide_approval` only on a clear yes/no. | The banner disappears. Dashboard (second screen): approval turns approved; Agent 3 returns to working. |
+| 5 | The PM says "Agent 2 wants to push. Approve?" (if it does not, ask "anything waiting on me?"). Say: "Approve." | Calls `decide_approval` only on a clear yes/no. | The banner disappears. Dashboard (second screen): approval turns approved; Agent 2 returns to working. |
 | 6 | "That's all, thanks." Hang up. | Writes a 2-3 sentence summary into the session (`PATCH /sessions/{id}`). | Dashboard Conversations: the call is already there with transcript, actions and summary. |
 | 7 | Show the phone's lock screen. | Harness sends the summary to ntfy as "Call recap: ...". | ntfy notification on the phone within a few seconds. Optional close: in Conversations click **Continue** and type a follow-up. |
 
@@ -108,7 +129,7 @@ Cheat sheet if the PM misses a cue: "show me agent N", "show me the grid", "tell
 "stop everything" (kill switch; use it only if something goes wrong).
 
 Live seeding alternative for step 5: reset *without* `--with-approval`, and from a spare terminal run
-`scripts/seed-approval.sh agent-3 git_push` at the moment you want the banner to appear. The banner and the PM's question show up within about a second.
+`scripts/seed-approval.sh agent-2 git_push` at the moment you want the banner to appear. The banner and the PM's question show up within about a second.
 (There is no real worker-initiated approval request in the harness yet, so seeding is how the approval is created for the demo.)
 
 ## 5. Fallbacks
