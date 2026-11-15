@@ -11,6 +11,12 @@ Built for HackUTA 2026 (Chert track).
 > with mock agents (`MOCK_TICK=1`) and a seeded approval (`scripts/seed-demo.sh --with-approval=agent-2`) to bring each state up on
 > cue. Everything else in the video is live: the voice call, the PM's reasoning and tool calls, the rendered video frame, the dashboard
 > and the alerts.
+>
+> **What the mock agents do on their own.** Every few seconds the mock ticker picks an agent and moves it: it logs a work line,
+> finishes its task, starts a queued one, or hits a random blocker (which fires the real stuck alert). A stuck mock agent also
+> recovers by itself on a later tick ("resumed after guidance"), whether or not anyone answered it. So in the video, some state
+> changes (an agent going stuck, flipping back to working, or picking up a new task) come from the simulator rather than from
+> what was said on the call. Real workers don't do this: they stay stuck until you answer them.
 
 Eris runs three headless coding agents in Docker and puts a **PM agent** in front of them. You reach the PM by FaceTime
 video, text, or the web dashboard. On a FaceTime call, the PM's outgoing video is a live view of your whole team.
