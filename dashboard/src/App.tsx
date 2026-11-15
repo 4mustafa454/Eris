@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LiveProvider, useLive } from './lib/store'
 import Live from './pages/Live'
+import Approvals from './pages/Approvals'
 
 const TABS = [
   { id: 'live', label: 'Live' },
@@ -60,7 +61,8 @@ function Shell() {
       )}
       <main className="mx-auto w-full max-w-6xl flex-1 p-5">
         {tab === 'live' && <Live />}
-        {tab !== 'live' && <p className="text-muted">Coming next.</p>}
+        {tab === 'approvals' && <Approvals />}
+        {tab !== 'live' && tab !== 'approvals' && <p className="text-muted">Coming next.</p>}
       </main>
     </div>
   )
