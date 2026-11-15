@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  chat, getSession, search, type ActionRow, type SearchHit, type Session, type SessionDetail,
+  chat, getSession, HarnessError, search, type ActionRow, type SearchHit, type Session, type SessionDetail,
 } from '../lib/harness'
 import { useLive } from '../lib/store'
 import { Card, Pending, ago, isPending } from '../lib/ui'
@@ -45,6 +45,7 @@ function Detail({ id }: { id: string }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [chatState, setChatState] = useState<'idle' | 'pending' | 'failed'>('idle')
+  const [chatErr, setChatErr] = useState('')
   const [continuing, setContinuing] = useState(false)
   const end = useRef<HTMLDivElement>(null)
   const load = useCallback(() => getSession(id).then(setD).catch(() => setMissing(true)), [id])
@@ -63,6 +64,7 @@ function Detail({ id }: { id: string }) {
       await load()
     } catch (e) {
       setChatState(isPending(e) ? 'pending' : 'failed')
+      setChatErr(e instanceof HarnessError ? e.detail : '')
     } finally {
       setBusy(false)
     }
@@ -125,7 +127,7 @@ function Detail({ id }: { id: string }) {
               </button>
             </div>
             {chatState === 'pending' && <div className="mt-3"><Pending what="Continue" route="POST /chat" /></div>}
-            {chatState === 'failed' && <p className="mt-2 text-sm text-bad" role="alert">That did not send. Try again.</p>}
+            {chatState === 'failed' && <p className="mt-2 text-sm text-bad" role="alert">{chatErr || 'That did not send. Try again.'}</p>}
           </>
         )}
       </div>
