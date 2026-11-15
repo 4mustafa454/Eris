@@ -89,5 +89,8 @@ no capabilities, memory/pid limits. Workers commit locally; they have no remote 
 handed to each run by name (`docker exec -e CLAUDE_CODE_OAUTH_TOKEN`), so it is never in a command line, an image, a
 container config, the database, or a log line (known secret values are redacted from event lines and reasons).
 
+**Debugging a run:** set `ERIS_STREAM_LOG=data/stream.log` (gitignored) and the raw `stream-json` of every run is appended there, secrets
+redacted, one `agent-id<TAB>json` line each. Off by default.
+
 **Reset before a rehearsal:** stop the harness, run `scripts/seed-demo.sh` (deletes the dev database, rebuilds `demo-repo/`,
 removes the worker containers and their volumes), start the harness again.
