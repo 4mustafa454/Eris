@@ -244,3 +244,13 @@ def test_task_conflicts_and_validation_leave_work_intact(client):
     assert client.patch('/tasks/missing', json={'agent_id': 'agent-1'}).status_code == 404
     assert client.post('/tasks', json={'title': '  ', 'instruction': 'y'}).status_code == 422
     assert agent(client, 'agent-1')['task'] is not None
+
+
+def test_new_task_does_not_jump_an_existing_queued_task(client):
+    conn = db.connect()
+    conn.execute("INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES ('older', 'agent-3', 'Older', 'Do old work', 'queued', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')")
+    conn.close()
+    response = client.post('/tasks', json={'title': 'Newer', 'instruction': 'Do new work', 'agent_id': 'agent-3'})
+    assert response.status_code == 200 and response.json()['status'] == 'queued'
+    assert agent(client, 'agent-3')['task'] == 'Older'
+    assert sql("SELECT status FROM tasks WHERE id = 'older'")[0]['status'] == 'working'

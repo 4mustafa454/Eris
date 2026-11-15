@@ -105,22 +105,32 @@ class WorkerManager:
                 def write(conn, now):
                     if agent_id and agents.get_agent(conn, agent_id) is None:
                         raise UnknownAgent(agent_id)
+                    conn.execute('INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                 (task_id, agent_id, title, instruction, 'queued', now, now))
+                    started = None
                     if agent_id:
-                        status = tasks.add_task(conn, agent_id, title, instruction, now, task_id)
-                    else:
-                        status = 'queued'
-                        conn.execute('INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?)',
-                                     (task_id, title, instruction, status, now, now))
+                        if tasks.is_busy(conn, agent_id):
+                            agents.add_event(conn, agent_id, 'line', f'queued task: {_cut(title)}')
+                        else:
+                            started = tasks.start_next_queued(conn, agent_id, now)
+                    row = dict(conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone())
+                    if started:
+                        conn.execute('UPDATE agents SET engine_session = NULL WHERE id = ?', (agent_id,))
                     if session_id is not None:
                         args = {'title': title, 'instruction': instruction}
                         if agent_id and agent_id.startswith('agent-') and agent_id[6:].isdigit():
                             args['agent'] = int(agent_id[6:])
-                        sessions.add_action(conn, session_id, 'create_task', args, {'id': task_id, 'status': status}, agent_id)
-                    return dict(conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone())
-                result = self._tx(write)
-                if agent_id and result['status'] == 'working' and self.is_real(agent_id):
+                        sessions.add_action(conn, session_id, 'create_task', args, {'id': task_id, 'status': row['status']}, agent_id)
+                    return row, started
+                result, started = self._tx(write)
+                if started and self.is_real(agent_id):
+                    conn = db.connect()
+                    try:
+                        start_instruction = conn.execute('SELECT instruction FROM tasks WHERE id = ?', (started[0],)).fetchone()[0]
+                    finally:
+                        conn.close()
                     self._detectors.pop(agent_id, None)
-                    self._start_run(agent_id, instruction, None)
+                    self._start_run(agent_id, start_instruction, None)
                 return result
 
     async def update_board_task(self, task_id: str, fields: dict) -> dict:
