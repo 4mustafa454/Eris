@@ -58,6 +58,39 @@ NTFY_TOPIC=<your topic>       # alerts + "Call recap" go here
 # CODEX_MODEL=gpt-6.1-terra, CODEX_REASONING=medium
 ```
 
+Alerts over Chert (optional; the ntfy alert above works without any of this). Names only; put the values in `harness/.env`, never in a prompt or chat:
+
+```sh
+ALERT_CHANNELS=ntfy,imessage,facetime_call   # which channels exist
+ALERT_MODE=text_then_call                    # text = ntfy + iMessage; call = FaceTime call; text_then_call = both, text first
+ALERT_TO=<NUMBER>                            # your iPhone, E.164 (+1...). Must be verified with Chert, see below
+ALERT_DRY_RUN=                               # 1 = log what each channel would send, send nothing
+CHERT_SIGNING_SECRET=...                     # iMessage: Messaging API signing secret from the Chert console
+CHERT_API_KEY=...                            # call: project API key with facetime:write + facetime:read
+CHERT_PROJECT_ID=...                         # call: project UUID
+CHERT_LINE_ID=...                            # call: UUID of the outbound-enabled line
+LIVEKIT_URL= / LIVEKIT_API_KEY= / LIVEKIT_API_SECRET=   # call: the same three values as supervisor/.env.local
+AGENT_NAME=eris                              # call: the supervisor the harness dispatches into the alert room
+```
+
+- **The call needs your own LiveKit project**: the harness creates the call's room and mints the bridge token, so the
+  Shared-plan "leave `LIVEKIT_*` empty" setup cannot place alert calls. The supervisor must be running with the same
+  project and `AGENT_NAME`. Restart the harness after editing `.env`.
+- **Recipient:** Chert only reaches numbers verified for your project and line. There is no add-a-number command; run
+  `chert onboard` (`--restart` if the session expired), send the code it shows by text **from the phone being added**,
+  and check with `chert onboard --status`. A send to an unverified number fails with `recipient_not_verified`.
+- **Test one channel at a time** (from `harness/`; `--dry-run` sends nothing, the other two are real):
+
+  ```sh
+  .venv/bin/python -m app.alert_test imessage --dry-run              # logs "[dry-run] imessage to ***1234 would send: ..."
+  .venv/bin/python -m app.alert_test imessage "Agent 1 is stuck: test"   # one real text (+ the :8788 frame if the supervisor is up)
+  .venv/bin/python -m app.alert_test call "Agent 1 is stuck: test"       # one real FaceTime call; answer it
+  ```
+
+  The text carries the display name and reason ("Agent 1 is stuck: v1 or v2 endpoint?", "Agent 2 needs approval: git_push").
+  The image is the supervisor's current frame, so it is only attached while the supervisor is serving `:8788`.
+  Test calls spend trial minutes (5 per call, 50 total); use `--dry-run` for everything except the final check.
+
 Codex worker prerequisites (one-time):
 
 - Build the image: `scripts/build-codex-worker.sh` (Claude workers: `scripts/build-worker.sh`).
@@ -85,8 +118,11 @@ Do these in order, no more than ~15 minutes before the call.
       The container's copy of the token is read-only and cannot refresh itself, so an expired token would only show up
       mid-demo as an error on agent-3. If it fails, run `codex login` on the host and repeat. Start the harness for this (section 1, terminal 1)
       and **stop it again before the reset below**, which wipes the tiny task.
+- [ ] **Alerts dry run** (only if using iMessage/call alerts): `cd harness && .venv/bin/python -m app.alert_test imessage --dry-run`
+      shows the masked number and the alert text. Do the single real text and call checks from section 2 the day before, not now.
 - [ ] **Reset the data** (stop the harness first; the script refuses to run while it answers):
       `scripts/seed-demo.sh --yes --with-approval=agent-2`
+      (Seeding the approval is the **fallback**. Real workers raise approvals themselves, see "Where the approval comes from" in section 4; seed because a mock agent such as `agent-2` never asks.)
       This wipes the dev DB (so test calls do not appear in the recap), rebuilds `demo-repo/` with its failing test,
       removes old worker containers, and then creates one pending `git_push` approval for `agent-2`
       (a mock agent when `REAL_WORKERS=agent-1,agent-3`; it becomes "Awaiting approval". An idle real agent would not). Use another agent id after `=` if you like; the default is `agent-1`,
@@ -127,9 +163,28 @@ Say the quoted lines. The PM answers in one or two sentences by design; do not w
 Cheat sheet if the PM misses a cue: "show me agent N", "show me the grid", "tell agent N to ...", "pause agent N",
 "stop everything" (kill switch; use it only if something goes wrong).
 
-Live seeding alternative for step 5: reset *without* `--with-approval`, and from a spare terminal run
-`scripts/seed-approval.sh agent-2 git_push` at the moment you want the banner to appear. The banner and the PM's question show up within about a second.
-(There is no real worker-initiated approval request in the harness yet, so seeding is how the approval is created for the demo.)
+**Where the approval comes from (step 5).** Real workers (agent-1 Claude Code, agent-3 Codex) create approvals themselves:
+every worker prompt tells the agent to end its reply with `APPROVAL: git_push` and stop before a git push. The harness turns that
+line into a pending `git_push` approval, marks the agent "Awaiting approval", and after "Approve." steers the same session to continue
+(a denial steers it to pick another approach). To show it for real, give a real worker a task that ends in a push, e.g. tell agent 3
+"commit that and push it". The seeded approval on mock `agent-2` is the fallback: it is deterministic and costs no model call. Use it
+for rehearsals and as a safety net. For a live-timed banner, reset *without* `--with-approval` and run
+`scripts/seed-approval.sh agent-2 git_push` from a spare terminal when you want it to appear (about a second).
+
+### Optional beat: Eris texts, then calls you
+
+Only with the alert setup from section 2 done and tested the day before, `ALERT_MODE=text_then_call`, and `chert dev` running.
+Run it **instead of** step 4's pre-primed stuck agent, before the phone call (it adds about a minute; the call itself stays under 5 minutes):
+
+1. Phone locked, FaceTime idle. Send agent 1 the BLOCKED task from the checklist (or steer a working agent into a question).
+2. Within a few seconds of the stuck event: the ntfy and iMessage alert arrive: "Agent 1 is stuck: which endpoint, v1 or v2?", with a picture of the grid when the
+   supervisor is serving it. The harness sends at most one alert per agent per 2 minutes.
+3. Then Eris **calls the iPhone** (FaceTime Video). Answer. The greeting leads with the reason ("Hi, it's Eris. Agent 1 is stuck: ... Want me to pull it up?")
+   and the grid is up. Continue from step 4 of the script ("What's wrong with agent 1?").
+4. If the call does not ring: the text already told you what happened, so just call in as usual. Do not retry the test call; it spends trial minutes.
+
+Rehearse it with `ALERT_DRY_RUN=1` first (logs only), then once for real. If the dashboard or phone shows no call within ~30 s, check the harness
+log for "Alert delivery failed for facetime_call" (it names the HTTP status or the missing variable, never a secret).
 
 ## 5. Fallbacks
 
