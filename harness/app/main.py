@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, db
 from .alerts import StuckAlerts
@@ -65,6 +66,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Eris harness", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173', 'http://127.0.0.1:5173'],
+                   allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'], allow_headers=['content-type'])
 app.include_router(agents_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(context_routes.router)
