@@ -15,7 +15,7 @@ function fakeDisplay(agents = AGENTS) {
   return { modes, setMode: (...args) => modes.push(args), snapshot: () => ({ agents }) };
 }
 
-function setup(overrides = {}, display) {
+function setup(overrides = {}, display, sessionId) {
   const calls = [];
   const actions = [];
   const harness = {
@@ -27,9 +27,16 @@ function setup(overrides = {}, display) {
       return a;
     },
     getLog: async (id, lines) => { calls.push(['getLog', id, lines]); return { lines: ['run pytest → 2 failed', 'edit signup.py'] }; },
+    sendTask: async (id, instruction, sessionId) => {
+      calls.push(['sendTask', id, instruction, sessionId]);
+      const a = AGENTS.find(x => x.id === id);
+      if (!a) throw new HarnessError(`harness POST /agents/${id}/task → 404`, { status: 404 });
+      return { ...a, state: 'working', stuck_reason: null };
+    },
+    stopAll: async () => { calls.push(['stopAll']); return AGENTS.map(a => ({ ...a, state: 'paused' })); },
     ...overrides,
   };
-  const tools = buildTools({ harness, log: { action: a => actions.push(a) }, display });
+  const tools = buildTools({ harness, log: { action: a => actions.push(a) }, display, sessionId });
   const run = (name, args) => tools[name].execute(args, { ctx: {}, toolCallId: 't1' });
   return { tools, run, calls, actions };
 }
@@ -107,7 +114,7 @@ test('harness down: the tool answers instead of throwing, and still logs once', 
 
 test('mutating tools answer "not available yet" and log nothing (the harness logs them later)', async () => {
   const { run, calls, actions } = setup();
-  for (const name of ['send_task', 'pause_agent', 'resume_agent', 'stop_all', 'create_task', 'decide_approval']) {
+  for (const name of ['pause_agent', 'resume_agent', 'create_task', 'decide_approval']) {
     assert.equal(await run(name, { n: 1, instruction: 'x', title: 't', id: 'a', decision: 'approved' }), 'not available yet', name);
   }
   assert.deepEqual(calls, []);
@@ -203,4 +210,69 @@ test('a new tool added to tools.json defaults to "not available yet" and is not 
   const tools = buildTools({ harness: {}, log: { action: a => actions.push(a) }, defs: [...loadTools(), extra] });
   assert.equal(await tools.brand_new.execute({}, { ctx: {}, toolCallId: 't' }), 'not available yet');
   assert.deepEqual(actions, []);
+});
+
+// --- send_task and stop_all (M3): mutating tools, logged by the harness route, never by the supervisor ------------
+
+test('send_task sends the instruction with the call\'s session id and is not logged by the supervisor', async () => {
+  const { run, calls, actions } = setup({}, undefined, 'sess-1');
+  const result = await run('send_task', { n: 1, instruction: '  Use the v2 endpoint  ' });
+  assert.deepEqual(calls, [['sendTask', 'agent-1', 'Use the v2 endpoint', 'sess-1']]);
+  assert.deepEqual(result, { sent: true, agent: 'Agent 1', state: 'working', task: 'Add validation', instruction: 'Use the v2 endpoint' });
+  assert.deepEqual(actions, [], 'the harness route writes the action row (AGENTS.md §5.3)');
+});
+
+test('send_task accepts the agent number as a digit string, and works with no session (the harness was down at call start)', async () => {
+  const { run, calls } = setup();
+  assert.equal((await run('send_task', { n: '2', instruction: 'go' })).sent, true);
+  assert.deepEqual(calls, [['sendTask', 'agent-2', 'go', undefined]]);
+});
+
+test('send_task to an agent that is not there says so, politely, without calling the harness for a bad number', async () => {
+  const { run, calls } = setup();
+  assert.deepEqual(await run('send_task', { n: 9, instruction: 'go' }), { error: "There's no agent 9." });
+  for (const n of [0, -1, 'x', null]) {
+    assert.deepEqual(await run('send_task', { n, instruction: 'go' }), { error: `There's no agent ${n}.` }, String(n));
+  }
+  assert.deepEqual(calls, [['sendTask', 'agent-9', 'go', undefined]], 'only the well-formed number reached the harness');
+});
+
+test('send_task with a blank instruction sends nothing', async () => {
+  const { run, calls } = setup();
+  for (const instruction of ['', '   ', '\n', undefined, null, 5]) {
+    assert.deepEqual(await run('send_task', { n: 1, instruction }), { error: 'There was no instruction to send.' }, String(instruction));
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('send_task: a 422 from the harness is the same blank-instruction answer; a down harness is the usual one', async () => {
+  let { run } = setup({ sendTask: async () => { throw new HarnessError('x', { status: 422 }); } });
+  assert.deepEqual(await run('send_task', { n: 1, instruction: 'go' }), { error: 'There was no instruction to send.' });
+  ({ run } = setup({ sendTask: async () => { throw new HarnessError('unreachable'); } }));
+  assert.deepEqual(await run('send_task', { n: 1, instruction: 'go' }), { error: "I can't reach the team right now." });
+  ({ run } = setup({ sendTask: async () => { throw new Error('boom'); } }));
+  assert.deepEqual(await run('send_task', { n: 1, instruction: 'go' }), { error: "I can't reach the team right now." });
+});
+
+test('a long instruction is passed whole to the harness; only the echoed copy for the model is shortened', async () => {
+  const { run, calls } = setup();
+  const long = 'x'.repeat(500);
+  const result = await run('send_task', { n: 1, instruction: long });
+  assert.equal(calls[0][2], long);
+  assert.equal(result.instruction.length, 120);
+});
+
+test('stop_all calls the kill switch and reports every agent, briefly', async () => {
+  const { run, calls, actions } = setup();
+  const result = await run('stop_all', {});
+  assert.deepEqual(calls, [['stopAll']]);
+  assert.equal(result.stopped, true);
+  assert.deepEqual(result.agents.map(a => [a.name, a.state]), [['Agent 1', 'paused'], ['Agent 2', 'paused']]);
+  assert.ok(result.agents.every(a => !('id' in a) && !('color' in a)), 'no ids or colors to read out');
+  assert.deepEqual(actions, []);
+});
+
+test('stop_all with the harness down says so', async () => {
+  const { run } = setup({ stopAll: async () => { throw new HarnessError('unreachable'); } });
+  assert.deepEqual(await run('stop_all', {}), { error: "I can't reach the team right now." });
 });

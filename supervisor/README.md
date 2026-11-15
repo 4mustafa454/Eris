@@ -3,10 +3,11 @@
 The PM voice agent: speech in, the shared PM brain, speech out. It talks to the harness over HTTP and
 logs every call. Contract: `/AGENTS.md`. Chert rules for this folder: `AGENTS.md` here.
 
-M1 scope: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/`, `get_status` and
-`explain_agent` working, a template greeting on `bridge_ready`, and every turn and read-only action logged to a
-session. Not yet: sending work to agents (M3), hangup summaries (M4). The other tools
-answer "not available yet".
+Scope so far: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/`, a template greeting on
+`bridge_ready`, every turn and read-only action logged to a session, the team video (M2), and `send_task` and `stop_all`
+(M3: "tell agent 1 to use the v2 endpoint" steers a worker or starts a task; "stop everything" is the kill switch). The
+harness logs the `send_task` action itself. Not yet: approvals, pause/resume and create_task by voice (the PM says "not
+available yet"), and hangup summaries (M4).
 
 ## Setup
 
@@ -53,7 +54,9 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
    self-view (bottom right by default) should not cover any text. If it does, adjust `VIDEO_SAFE_TOP` / `VIDEO_SAFE_BOTTOM` / `VIDEO_SAFE_SIDE`. Say "show me agent 2": the picture
    switches to Agent 2 full screen and the PM answers in one short sentence. "Show me the grid" goes back. "Show me agent 9":
    "There's no agent 9." and the picture does not change. A new call starts on the grid again.
-   "Tell agent 1 to use the v2 endpoint" still gets "not available yet" (M3).
+   "Tell agent 1 to use the v2 endpoint" sends the instruction (the session's action list gets a `send_task` row written
+   by the harness); with mock workers the agent just carries on, with a real worker (see `harness/README.md`) it resumes
+   its session. "Stop everything" pauses every working agent.
 7. Hang up, then check what was saved:
    ```sh
    curl -s 'localhost:8787/sessions?limit=1'            # newest session, ended_at set

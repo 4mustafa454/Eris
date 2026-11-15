@@ -27,7 +27,8 @@ describe('against a real harness on a throwaway database', { skip: existsSync(UV
     base = `http://127.0.0.1:${port}`;
     proc = spawn(UVICORN, ['app.main:app', '--port', String(port), '--log-level', 'warning'], {
       cwd: HARNESS_DIR,
-      env: { PATH: process.env.PATH, ERIS_DB_PATH: join(dir, 'eris.db') },
+      // ERIS_ENV_FILE points away from any real harness/.env: a developer's REAL_WORKERS must never reach this test.
+      env: { PATH: process.env.PATH, ERIS_DB_PATH: join(dir, 'eris.db'), ERIS_ENV_FILE: join(dir, 'none.env') },
       stdio: 'ignore',
     });
     harness = createHarness({ baseUrl: base });
@@ -76,6 +77,32 @@ describe('against a real harness on a throwaway database', { skip: existsSync(UV
     const ctx = await harness.getContext();
     assert.ok(ctx.recent_summaries.some(s => s.summary === 'Agent 3 renamed the package.'));
     assert.equal(ctx.agents.length, 3);
+  });
+
+  test('sendTask steers a working agent (same task), logs one send_task action for the session, and stopAll pauses', async () => {
+    const session = await harness.createSession('facetime');
+    const before = await harness.getAgent('agent-1');
+    const state = await harness.sendTask('agent-1', 'Use the v2 endpoint', session.id);
+    assert.equal(state.state, 'working');
+    assert.equal(state.task, before.task, 'steering keeps the task');
+    const d = await detail(session.id);
+    assert.deepEqual(d.actions.map(a => a.tool), ['send_task']);
+    assert.deepEqual(JSON.parse(d.actions[0].args_json), { n: 1, instruction: 'Use the v2 endpoint' });
+    assert.equal(d.actions[0].agent_id, 'agent-1');
+    assert.ok((await harness.getLog('agent-1', 5)).lines.includes('steered: Use the v2 endpoint'));
+
+    const stopped = await harness.stopAll();
+    assert.deepEqual(stopped.map(a => a.state), ['paused', 'paused', 'done']);
+    const after = await harness.sendTask('agent-1', 'Carry on', session.id);
+    assert.equal(after.state, 'working');
+    assert.deepEqual((await detail(session.id)).actions.map(a => a.tool), ['send_task', 'send_task']);
+  });
+
+  test('sendTask: 404 for an unknown agent, 422 for a blank instruction, and nothing logged for either', async () => {
+    const session = await harness.createSession('facetime');
+    await assert.rejects(harness.sendTask('agent-9', 'x', session.id), err => err instanceof HarnessError && err.status === 404);
+    await assert.rejects(harness.sendTask('agent-1', '   ', session.id), err => err instanceof HarnessError && err.status === 422);
+    assert.deepEqual((await detail(session.id)).actions, []);
   });
 
   test('a mutating tool is rejected by the actions route (log-once rule)', async () => {

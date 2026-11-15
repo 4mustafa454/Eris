@@ -1,6 +1,6 @@
 // PM tools for the voice agent. Names, descriptions and argument schemas come from shared/pm/tools.json,
-// the same list the web chat uses. Implemented: get_status, explain_agent (M1) and show_grid, focus_agent (M2,
-// they switch the video); the rest answer "not available yet" until their milestones.
+// the same list the web chat uses. Implemented: get_status, explain_agent (M1), show_grid, focus_agent (M2, they
+// switch the video) and send_task, stop_all (M3); the rest answer "not available yet" until their milestones.
 //
 // Logging (AGENTS.md §5.3, log exactly once): read-only/display tools are logged by the caller, here, via
 // POST /sessions/{id}/actions. Mutating tools are logged by their own harness route once they exist,
@@ -14,6 +14,7 @@ const NOT_AVAILABLE = 'not available yet';
 const UNREACHABLE = "I can't reach the team right now.";
 const LOG_LINES = 20;
 const NO_VIDEO = "The video isn't available on this call.";
+const NO_INSTRUCTION = 'There was no instruction to send.';
 const noAgent = n => `There's no agent ${n}.`;
 
 /** Agent number as the PM says it ("agent 2") → harness id, or null when it is not a positive integer. */
@@ -30,8 +31,9 @@ const brief = a => ({ name: a.name, state: a.state, task: a.task, summary: a.sum
  * @param {ReturnType<import('./harness.mjs').createHarness>} harness
  * @param {{ setMode(mode: 'grid' | 'focus', agentId?: string): void, snapshot(): { agents?: any[] } } | undefined} display
  *   the video, or undefined when this call has none
+ * @param {string | undefined} sessionId  the call's session: send_task passes it so the harness logs the action
  */
-const implementations = (harness, display) => ({
+const implementations = (harness, display, sessionId) => ({
   async get_status() {
     return { result: { agents: (await harness.getAgents()).map(brief) } };
   },
@@ -48,6 +50,27 @@ const implementations = (harness, display) => ({
     }
     const { lines } = await harness.getLog(id, LOG_LINES);
     return { result: { agent: brief(agent), recent_activity: lines }, agentId: id };
+  },
+
+  // Mutating tools are logged by the harness route (AGENTS.md §5.3), so nothing here logs them.
+  async send_task({ n, instruction }) {
+    const id = agentId(n);
+    if (!id) return { result: { error: noAgent(n) } };
+    const text = typeof instruction === 'string' ? instruction.trim() : '';
+    if (!text) return { result: { error: NO_INSTRUCTION } };
+    try {
+      const state = await harness.sendTask(id, text, sessionId);
+      return { result: { sent: true, agent: state.name, state: state.state, task: state.task, instruction: text.slice(0, 120) } };
+    } catch (error) {
+      if (error instanceof HarnessError && error.status === 404) return { result: { error: noAgent(n) } };
+      if (error instanceof HarnessError && error.status === 422) return { result: { error: NO_INSTRUCTION } };
+      throw error;
+    }
+  },
+
+  async stop_all() {
+    const stopped = await harness.stopAll();
+    return { result: { stopped: true, agents: stopped.map(brief) } };
   },
 
   async show_grid() {
@@ -82,11 +105,12 @@ const implementations = (harness, display) => ({
  * @param {{ harness: ReturnType<import('./harness.mjs').createHarness>,
  *           log: { action(a: object): void },
  *           display?: Parameters<typeof implementations>[1],
+ *           sessionId?: string,
  *           defs?: ReturnType<typeof loadTools> }} deps  `log` is the session logger; `defs` defaults to tools.json
  * @returns {Record<string, any>} a ToolContext: tool name → llm.tool, ready for voice.Agent({ tools })
  */
-export function buildTools({ harness, log, display, defs = loadTools() }) {
-  const handlers = implementations(harness, display);
+export function buildTools({ harness, log, display, sessionId, defs = loadTools() }) {
+  const handlers = implementations(harness, display, sessionId);
   const known = new Set(defs.map(d => d.name));
   for (const name of Object.keys(handlers)) {
     if (!known.has(name)) throw new Error(`tools.mjs implements "${name}", which is not in shared/pm/tools.json`);

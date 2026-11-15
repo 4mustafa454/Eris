@@ -67,7 +67,7 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, s
 
   await agentSession.start({
     room: ctx.room,
-    agent: new voice.Agent({ instructions, tools: buildTools({ harness, log: logger, display: video ?? undefined }) }),
+    agent: new voice.Agent({ instructions, tools: buildTools({ harness, log: logger, display: video ?? undefined, sessionId: logger.sessionId }) }),
     record: false,
     inputOptions: {
       participantIdentity: caller.identity,

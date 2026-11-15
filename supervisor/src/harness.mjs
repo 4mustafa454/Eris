@@ -3,6 +3,8 @@
 // The client throws on failure. The session logger never does: a harness outage must not break the
 // voice pipeline, so logging errors are reported through onError and the call carries on.
 
+const SLOW_MS = 20000;
+
 export class HarnessError extends Error {
   constructor(message, { status, cause } = {}) {
     super(message, { cause });
@@ -17,17 +19,17 @@ export class HarnessError extends Error {
 export function createHarness({ baseUrl, fetchImpl = fetch, timeoutMs = 3000 }) {
   const root = baseUrl.replace(/\/+$/, '');
 
-  async function request(method, path, body) {
+  async function request(method, path, body, timeout = timeoutMs) {
     let response;
     try {
       response = await fetchImpl(`${root}${path}`, {
         method,
         headers: body === undefined ? undefined : { 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(timeout),
       });
     } catch (cause) {
-      const reason = cause?.name === 'TimeoutError' ? `timed out after ${timeoutMs} ms` : 'unreachable';
+      const reason = cause?.name === 'TimeoutError' ? `timed out after ${timeout} ms` : 'unreachable';
       throw new HarnessError(`harness ${method} ${path}: ${reason}`, { cause });
     }
     if (!response.ok) {
@@ -42,6 +44,10 @@ export function createHarness({ baseUrl, fetchImpl = fetch, timeoutMs = 3000 }) 
     getAgent: id => request('GET', `/agents/${encodeURIComponent(id)}`),
     getLog: (id, lines = 40) => request('GET', `/agents/${encodeURIComponent(id)}/log?lines=${lines}`),
     getContext: () => request('GET', '/context'),
+    // Steering a running worker interrupts it first, and stop-all waits for the interrupt: both can take over 5 s.
+    sendTask: (id, instruction, sessionId) =>
+      request('POST', `/agents/${encodeURIComponent(id)}/task`, { instruction, ...(sessionId ? { session_id: sessionId } : {}) }, SLOW_MS),
+    stopAll: () => request('POST', '/stop-all', undefined, SLOW_MS),
     createSession: channel => request('POST', '/sessions', { channel }),
     patchSession: (id, fields) => request('PATCH', `/sessions/${encodeURIComponent(id)}`, fields),
     postMessage: (id, role, text) => request('POST', `/sessions/${encodeURIComponent(id)}/messages`, { role, text }),
