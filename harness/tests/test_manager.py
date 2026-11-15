@@ -529,3 +529,29 @@ def test_a_bad_real_workers_setting_stops_startup_naming_the_variable(db_file, m
     with pytest.raises(ConfigError, match="REAL_WORKERS"):
         with TestClient(app):
             pass
+
+
+def test_codex_steers_same_thread_after_stopping_the_first_run(world):
+    import json
+
+    async def main():
+        m = world.manager
+        m.settings = Settings(real_workers=("agent-3",), engines={"agent-3": "codex"})
+        await m.send_task("agent-3", "Start working")
+        await until(lambda: bool(world.spawn.procs))
+        first = world.spawn.procs[-1]
+        first.say(json.dumps({"type": "thread.started", "thread_id": "codex-thread"}))
+        await until(lambda: session("agent-3") == "codex-thread")
+        await m.send_task("agent-3", "Use the v2 endpoint")
+        await until(lambda: len(world.spawn.procs) == 2)
+        assert first.rc == 130 and world.interrupts == ["agent-3", "agent-3"]
+        assert "resume" in world.spawn.argvs[-1] and "codex-thread" in world.spawn.argvs[-1]
+        second = world.spawn.procs[-1]
+        second.say(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "Done."}}),
+                   json.dumps({"type": "turn.completed"}))
+        second.end(0)
+        await m.wait_idle("agent-3")
+        assert state("agent-3")["state"] == "done"
+        assert session("agent-3") == "codex-thread"
+
+    arun(main())

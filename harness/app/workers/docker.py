@@ -18,6 +18,7 @@ from pathlib import Path
 from ..config import SECRET_NAMES, Settings
 
 CLAUDE_PATTERN = "claude -p"   # pkill/pgrep -f pattern for a running claude run (argv starts `claude -p`)
+CODEX_PATTERN = "[/]bin/codex exec"
 KEEPALIVE = ("sleep", "infinity")
 WORKSPACE = "/workspace"
 HOME = "/home/worker"
@@ -207,7 +208,8 @@ class Container:
         return ran.out if ran.rc == 0 else ""
 
     async def _running(self) -> bool:
-        return (await self.runner.run(in_container(self.agent_id, "pgrep", "-f", CLAUDE_PATTERN))).rc == 0
+        pattern = CODEX_PATTERN if self.settings.engine_for(self.agent_id) == "codex" else CLAUDE_PATTERN
+        return (await self.runner.run(in_container(self.agent_id, "pgrep", "-f", pattern))).rc == 0
 
     async def interrupt(self, wait: float = INTERRUPT_WAIT, poll: float = 0.25) -> str:
         """Stop the agent's run from inside the container. Returns 'idle', 'stopped' or 'killed'.
@@ -216,13 +218,14 @@ class Container:
         like). PID 1 and the keepalive are never signalled.
         """
         outcome = "idle"
-        signalled = await self.runner.run(in_container(self.agent_id, "pkill", "-INT", "-f", CLAUDE_PATTERN))
+        pattern = CODEX_PATTERN if self.settings.engine_for(self.agent_id) == "codex" else CLAUDE_PATTERN
+        signalled = await self.runner.run(in_container(self.agent_id, "pkill", "-INT", "-f", pattern))
         if signalled.rc == 0:
             outcome = "stopped"
             deadline = self._clock() + wait
             while await self._running():
                 if self._clock() >= deadline:
-                    await self.runner.run(in_container(self.agent_id, "pkill", "-KILL", "-f", CLAUDE_PATTERN))
+                    await self.runner.run(in_container(self.agent_id, "pkill", "-KILL", "-f", pattern))
                     outcome = "killed"
                     break
                 await self._sleep(poll)

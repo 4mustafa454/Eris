@@ -337,3 +337,25 @@ def test_a_real_completed_run_ends_done_with_a_plain_summary():
     assert r.kind == "done" and r.summary == "I added four billing tests, and all 10 tests pass."
     assert "rate_limit_event" in (FIXTURES / "steered_run_real.jsonl").read_text(), "unknown real event types are in the stream and ignored"
     assert [u for u in updates if u.lines or u.summary or u.result] and not any(u.result for u in updates[:-1])
+
+
+def test_codex_stream_records_thread_and_completes_only_on_turn_end():
+    from app.workers.stream import CodexStreamParser
+    import json
+    parser = CodexStreamParser()
+    def feed(event):
+        return parser.feed(json.dumps(event))
+    assert feed({"type": "thread.started", "thread_id": "thread-123"}).session_id == "thread-123"
+    assert feed({"type": "item.completed", "item": {"type": "agent_message", "text": "BLOCKED: Which endpoint?"}}).summary
+    assert parser.result is None
+    assert feed({"type": "turn.completed"}).result.reason == "Which endpoint?"
+    assert parser.finish(0).kind == "blocked"
+
+
+def test_codex_stream_ignores_unknown_events_and_handles_failure():
+    from app.workers.stream import CodexStreamParser
+    import json
+    parser = CodexStreamParser()
+    assert not parser.feed("not json").alive
+    assert parser.feed(json.dumps({"type": "future"})).alive
+    assert parser.feed(json.dumps({"type": "turn.failed"})).result.kind == "error"

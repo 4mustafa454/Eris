@@ -246,3 +246,46 @@ class StreamParser:
         else:
             result = Result("done", text, None, first_sentence(text) if text.strip() else None)
         out.result = self.result = result
+
+
+class CodexStreamParser(StreamParser):
+    """Codex exec JSONL adapter. Only completed turns establish a successful outcome."""
+
+    def __init__(self, secrets=()):
+        super().__init__(secrets)
+        self._final_text = ""
+
+    def _handle(self, event: dict) -> Update:
+        out = Update()
+        kind = event.get("type")
+        if kind == "thread.started":
+            sid = event.get("thread_id")
+            if isinstance(sid, str) and sid:
+                out.session_id = self.session_id = sid
+        elif kind == "item.completed":
+            item = event.get("item") or {}
+            if not isinstance(item, dict):
+                return out
+            typ = item.get("type")
+            if typ == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    self._final_text = text
+                    out.summary = first_sentence(text) if text.strip() else None
+            elif typ == "command_execution":
+                command = item.get("command") or ""
+                if isinstance(command, str) and _PYTEST.search(command):
+                    out.lines.append(f"run pytest → {_pytest_outcome(str(item.get('aggregated_output') or ''))}")
+                else:
+                    out.lines.append("run command")
+            elif typ == "file_change":
+                out.lines.append("edit files")
+        elif kind == "turn.completed":
+            reason = _blocked_reason(self._final_text)
+            self.result = (Result("blocked", self._final_text, reason) if reason is not None else
+                           Result("done", self._final_text, summary=first_sentence(self._final_text) if self._final_text.strip() else None))
+            out.result = self.result
+        elif kind == "turn.failed":
+            self.result = Result("error", reason="Codex turn failed")
+            out.result = self.result
+        return out

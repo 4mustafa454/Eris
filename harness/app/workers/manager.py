@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from .. import agents, db, tasks
 from ..config import Settings, secret_values
 from . import docker
-from .stream import MAX_LINE, StreamParser
+from .stream import MAX_LINE, StreamParser, CodexStreamParser
 
 STOP_GRACE = 10.0        # seconds to wait for a stopped run's stream to end before giving up on it
 STDERR_TAIL = 2000
@@ -169,7 +169,8 @@ class WorkerManager:
         return self._containers[agent_id]
 
     def _start_run(self, agent_id: str, instruction: str, resume: str | None) -> None:
-        run = Run(agent_id, parser=StreamParser(secret_values(self._env)))
+        parser_type = CodexStreamParser if self.settings.engine_for(agent_id) == "codex" else StreamParser
+        run = Run(agent_id, parser=parser_type(secret_values(self._env)))
         self._runs[agent_id] = run
         run.task = asyncio.create_task(self._run(run, instruction, resume))
 
@@ -211,8 +212,6 @@ class WorkerManager:
         agent_id = run.agent_id
         stderr_tail = ""
         try:
-            if self.settings.engine_for(agent_id) != "claude-code":
-                raise docker.WorkerError("Codex worker support is not yet implemented")
             await self._container(agent_id).ensure()
             if run.stopped:  # stopped before it ever started: it must not start now
                 return
