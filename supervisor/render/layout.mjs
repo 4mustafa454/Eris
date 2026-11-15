@@ -55,7 +55,7 @@ function badge(measure, state, x, y, fontPx) {
     w, h,
     ops: [
       { type: 'rect', x, y, w, h, fill: s.bg, radius: h / 2 },
-      { type: 'text', text: label, x: x + padX, y: y + Math.round((h - fontPx) / 2) - 2, fontPx, bold: true, fill: s.fg, maxWidth: w - padX * 2 },
+      { type: 'text', text: label, x: x + padX, y: y + Math.round((h - fontPx) / 2) + 2, fontPx, bold: true, fill: s.fg, maxWidth: w - padX * 2 },
     ],
   };
 }
@@ -130,7 +130,7 @@ export function layoutFocus(model, measure) {
     const lh = Math.round(T.reason * 1.25);
     const boxH = lines.length * lh + 32;
     ops.push({ type: 'rect', x, y, w: inner, h: boxH, fill: COLORS.warn, radius: 12 });
-    lines.forEach((l, i) => ops.push({ type: 'text', text: l, x: x + 24, y: y + 16 + i * lh, fontPx: T.reason, bold: true, fill: COLORS.warnText, maxWidth: inner - 48 }));
+    lines.forEach((l, i) => ops.push({ type: 'text', text: l, x: x + 24, y: y + 22 + i * lh, fontPx: T.reason, bold: true, fill: COLORS.warnText, maxWidth: inner - 48 }));
     y += boxH + 24;
   }
   const lh = Math.round(T.log * 1.4);
