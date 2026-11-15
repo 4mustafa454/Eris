@@ -19,7 +19,7 @@ test('.env.example has no duplicate names', () => {
 test('.env.example lists every variable the supervisor reads', () => {
   const wanted = new Set([
     'LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME',
-    'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL',
+    'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL', 'FRAME_PORT', 'CHERT_HOME',
   ]);
   for (const name of [...TURN_ENV, ...VIDEO_ENV]) wanted.add(name);
   for (const { selector } of Object.values(ROLES)) wanted.add(selector);
@@ -34,7 +34,7 @@ test('.env.example lists every variable the supervisor reads', () => {
 });
 
 test('.env.example has nothing the supervisor does not read', () => {
-  const known = new Set(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME', 'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL']);
+  const known = new Set(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME', 'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL', 'FRAME_PORT', 'CHERT_HOME']);
   for (const name of [...TURN_ENV, ...VIDEO_ENV]) known.add(name);
   for (const { selector } of Object.values(ROLES)) known.add(selector);
   for (const role of Object.values(registries)) {
