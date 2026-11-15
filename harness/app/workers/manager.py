@@ -197,8 +197,6 @@ class WorkerManager:
             await asyncio.wait_for(asyncio.shield(run.task), STOP_GRACE)
         except asyncio.TimeoutError:
             run.task.cancel()
-            if run.proc is not None:
-                run.proc.kill_client()
             try:
                 await run.task
             except BaseException:
@@ -347,14 +345,6 @@ class _Proc:
         code = await self._proc.wait()
         await self._drain
         return code
-
-    def kill_client(self) -> None:
-        """Last resort, host side only: the in-container kill is what actually stops claude."""
-        try:
-            self._proc.kill()
-        except ProcessLookupError:
-            pass
-
 
 async def spawn_process(argv: list[str]) -> _Proc:
     try:
