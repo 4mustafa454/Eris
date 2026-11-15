@@ -258,7 +258,7 @@ Both run in Docker as a **non-root user**, repo mounted at `/workspace`. Workers
 - Gotcha: skip-permissions refuses to run as root. Non-root user + explicit `HOME`.
 
 **Codex**
-- Auth: host `codex login` (ChatGPT account) → mount `~/.codex/auth.json` read-write (password-level secret; never commit).
+- Auth: host `codex login` (ChatGPT account) → mount `~/.codex/auth.json` **read-only** (deliberate, commit 8151666; password-level secret, never commit). The container cannot refresh the token, so before the demo run a small Codex task on the host (`codex exec "reply ok"`) to refresh it, then check agent-3 with a tiny task.
 - Run: `codex exec --json --sandbox danger-full-access "<task>"` (container is the sandbox; `--full-auto` is deprecated).
 - Follow-ups: `codex exec resume <thread_id> "<instruction>"`; thread id from the first JSON event.
 - Needs a git repo in `/workspace` (or `--skip-git-repo-check`).

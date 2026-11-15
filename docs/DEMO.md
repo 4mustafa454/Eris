@@ -63,8 +63,7 @@ Codex worker prerequisites (one-time):
 - Build the image: `scripts/build-codex-worker.sh` (Claude workers: `scripts/build-worker.sh`).
 - Sign in on the host with `codex login` (ChatGPT account). The Codex container gets the host's `~/.codex/auth.json`
   as a **read-only bind mount** (`docker.py`); there is no token in an env var, image or command line. Because it is
-  read-only, a token refresh can only happen on the host, never from inside the container. (`/AGENTS.md` §7 still says
-  "read-write"; the code is read-only, which is the safer of the two.) Treat the file as a password: never commit or paste it.
+  read-only, a token refresh can only happen on the host, never from inside the container. (This is deliberate and matches `/AGENTS.md` §7.) Treat the file as a password: never commit or paste it.
 
 Validate it without starting anything: `cd harness && .venv/bin/python -m app.config`.
 
