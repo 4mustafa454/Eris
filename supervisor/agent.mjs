@@ -21,13 +21,14 @@ if (!process.argv.some(arg => arg === '--help' || arg === '-h')) {
   const roles = describeConfig(process.env);
   console.log(
     `[eris] stt=${roles.stt.provider} tts=${roles.tts.provider} llm=${roles.llm.provider} ` +
+      `interrupt=${config.turn.minDurationMs}ms/${config.turn.minWords}w vad=${config.turn.vadActivationThreshold} ` +
       `harness=${config.harnessUrl} greet-on-join=${config.greetOnJoin ? 'on (development)' : 'off'}`,
   );
 }
 
 const agent = defineAgent({
   // Loaded once per worker, before any call: the voice activity detector.
-  prewarm: async proc => { proc.userData.vad = await silero.VAD.load(); },
+  prewarm: async proc => { proc.userData.vad = await silero.VAD.load({ activationThreshold: config.turn.vadActivationThreshold }); },
   entry: ctx => handleCall(ctx, {
     config,
     harness: createHarness({ baseUrl: config.harnessUrl }),

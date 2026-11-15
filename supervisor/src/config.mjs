@@ -19,6 +19,59 @@ const NO_KEY = 'not-needed';
 const filled = value => typeof value === 'string' && value.trim() !== '' && !/^YOUR_/.test(value.trim());
 const get = (env, name) => (filled(env[name]) ? env[name].trim() : undefined);
 
+/**
+ * Interruption tuning (all optional). Fewer false interruptions from echo and background noise: the caller must
+ * speak for a while, and say actual words, before the PM stops talking; a false stop resumes by itself.
+ * Names and units are from @livekit/agents turnHandling.interruption (milliseconds) and the Silero VAD.
+ */
+export const TURN_DEFAULTS = {
+  minDurationMs: 600, //   LiveKit default 500
+  minWords: 1, //          LiveKit default 0 (any noise that trips the VAD counts). 1 still lets a lone "stop" through.
+  resumeFalse: true, //    resume the PM's sentence after a false interruption (LiveKit default true)
+  vadActivationThreshold: 0.6, // Silero default 0.5: slightly harder for noise to count as speech
+};
+
+const TURN_VARS = {
+  minDurationMs: { name: 'INTERRUPT_MIN_DURATION_MS', min: 0, max: 5000, integer: true },
+  minWords: { name: 'INTERRUPT_MIN_WORDS', min: 0, max: 10, integer: true },
+  vadActivationThreshold: { name: 'VAD_ACTIVATION_THRESHOLD', min: 0.1, max: 0.95 },
+};
+
+/** Every env var the interruption tuning reads (for .env.example). */
+export const TURN_ENV = [...Object.values(TURN_VARS).map(v => v.name), 'INTERRUPT_RESUME_FALSE'];
+
+/** Parses the interruption variables; bad values are reported as problems, never thrown from here. */
+function readTurn(env, problems) {
+  const out = { ...TURN_DEFAULTS };
+  for (const [key, { name, min, max, integer }] of Object.entries(TURN_VARS)) {
+    const raw = get(env, name);
+    if (raw === undefined) continue;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
+      problems.push(`${name} must be ${integer ? 'a whole number' : 'a number'} from ${min} to ${max}`);
+    } else out[key] = n;
+  }
+  const resume = get(env, 'INTERRUPT_RESUME_FALSE');
+  if (resume !== undefined) {
+    if (resume === '0' || resume === '1') out.resumeFalse = resume === '1';
+    else problems.push('INTERRUPT_RESUME_FALSE must be 0 or 1');
+  }
+  return out;
+}
+
+/** The AgentSession `turnHandling` option for a loaded config's `turn` settings (defaults when omitted). */
+export function buildTurnHandling(turn = TURN_DEFAULTS) {
+  return {
+    // The default end-of-turn detector needs LiveKit's inference executor, which Chert rooms do not have.
+    turnDetection: 'vad',
+    interruption: {
+      minDuration: turn.minDurationMs,
+      minWords: turn.minWords,
+      resumeFalseInterruption: turn.resumeFalse,
+    },
+  };
+}
+
 export const registries = {
   stt: {
     deepgram: {
@@ -139,12 +192,14 @@ export function loadConfig(env = process.env) {
   const resolved = Object.keys(ROLES).map(role => ({ ...resolveRole(role, env), env }));
   const harnessUrl = (get(env, 'HARNESS_URL') ?? 'http://localhost:8787').replace(/\/+$/, '');
   const problems = resolved.flatMap(problemsOf);
+  const turn = readTurn(env, problems);
   if (!/^https?:\/\//.test(harnessUrl)) problems.push('HARNESS_URL must start with http:// or https://');
   if (problems.length) throw new Error(`Invalid supervisor configuration:\n- ${problems.join('\n- ')}`);
   return {
     providers: Object.fromEntries(resolved.map(r => [r.role, r.name])),
     harnessUrl,
     greetOnJoin: env.GREET_ON_JOIN === '1',
+    turn,
   };
 }
 

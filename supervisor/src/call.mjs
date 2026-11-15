@@ -1,6 +1,7 @@
 // One call, end to end: join, wait for the caller, open a session, run the PM, log it, greet once, clean up.
 // Everything outside the framework is injected, so call.test.mjs drives the whole flow with fakes.
 import { AutoSubscribe, voice as livekitVoice } from '@livekit/agents';
+import { buildTurnHandling } from './config.mjs';
 import { armGreeting, resolveGreeting } from './greeting.mjs';
 import { createSessionLogger } from './harness.mjs';
 import { renderPrompt } from './pm-prompt.mjs';
@@ -16,7 +17,7 @@ const EMPTY_CONTEXT = { recent_summaries: [], agents: [], open_tasks: [], pendin
 /**
  * @param {any} ctx job context: room, connect(), waitForParticipant(), addShutdownCallback()
  * @param {{
- *   config: { greetOnJoin: boolean },
+ *   config: { greetOnJoin: boolean, turn?: object },
  *   harness: ReturnType<typeof import('./harness.mjs').createHarness>,
  *   createProviders: () => { stt: any, tts: any, llm: any },
  *   vad: any,
@@ -42,8 +43,7 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, v
     llm: providers.llm,
     tts: providers.tts,
     vad,
-    // The default end-of-turn detector needs LiveKit's inference executor, which Chert rooms do not have.
-    turnDetection: 'vad',
+    turnHandling: buildTurnHandling(config.turn),
   });
 
   // Every final turn, either side, in order. The spoken greeting arrives here too, so it is not logged twice.

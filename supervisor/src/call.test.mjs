@@ -92,7 +92,8 @@ test('the session gets the chosen providers, the VAD, and VAD turn detection; au
   assert.equal(session.options.tts, providers.tts);
   assert.equal(session.options.llm, providers.llm);
   assert.equal(session.options.vad, vad);
-  assert.equal(session.options.turnDetection, 'vad');
+  assert.equal(session.options.turnHandling.turnDetection, 'vad');
+  assert.equal(session.options.turnDetection, undefined, 'the deprecated top-level option is not used');
   assert.equal(session.startOptions.room, ctx.room);
   assert.equal(session.startOptions.inputOptions.participantIdentity, 'chert-bridge-c1');
   assert.equal(session.startOptions.inputOptions.videoEnabled, false);
@@ -221,4 +222,17 @@ test('a greeting that cannot be spoken is reported, not thrown', async () => {
   ctx.room.setMetadata(READY);
   await tick(); await tick();
   assert.deepEqual(errors, ['[eris] greeting failed: tts unavailable']);
+});
+
+test('interruption tuning from config reaches the session; without it the defaults apply', async () => {
+  const run = async config => {
+    const ctx = { ...fakeCtx(), };
+    await handleCall(ctx, { config, harness: fakeHarness(), createProviders: () => ({ stt: {}, tts: {}, llm: {} }), vad: {}, voice: fakeVoice, log: silentLog });
+    return FakeSession.last.options.turnHandling;
+  };
+  const tuned = await run({ greetOnJoin: false, turn: { minDurationMs: 900, minWords: 2, resumeFalse: false, vadActivationThreshold: 0.7 } });
+  assert.deepEqual(tuned.interruption, { minDuration: 900, minWords: 2, resumeFalseInterruption: false });
+  assert.equal(tuned.turnDetection, 'vad');
+  const defaults = await run({ greetOnJoin: false });
+  assert.deepEqual(defaults.interruption, { minDuration: 600, minWords: 1, resumeFalseInterruption: true });
 });

@@ -91,6 +91,14 @@ Local Ollama: `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_MODEL=gpt-oss:20b`,
 `openai-compatible` speech uses the LiveKit OpenAI plugin against your URL; its TTS is not streaming, so expect more
 latency than Deepgram or ElevenLabs.
 
+## Interruption tuning
+
+If the PM stops mid-sentence and resumes, that is a false interruption (echo, background noise). Defaults are already
+stricter than LiveKit's: the caller must speak for 600 ms and the speech-to-text must hear at least 1 word before the PM
+stops, a false stop resumes by itself, and the VAD threshold is 0.6. Tune in `.env.local` (see `.env.example`):
+`INTERRUPT_MIN_DURATION_MS`, `INTERRUPT_MIN_WORDS`, `INTERRUPT_RESUME_FALSE`, `VAD_ACTIVATION_THRESHOLD`. Startup prints the
+values in use. Wearing headphones removes echo at the source and helps more than any setting.
+
 ## With a real Chert line
 
 Leave `GREET_ON_JOIN` unset. The greeting is spoken once when `chert dev` sets `chert_bridge_ready`, from a template

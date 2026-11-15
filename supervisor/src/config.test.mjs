@@ -4,7 +4,7 @@ import { initializeLogger } from '@livekit/agents';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as openai from '@livekit/agents-plugin-openai';
-import { createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
+import { buildTurnHandling, createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
 
 // The plugins log from their constructors; at runtime the LiveKit CLI / chert-rooms.mjs does this first.
 initializeLogger({ pretty: false, level: 'silent' });
@@ -188,4 +188,34 @@ test('error text never contains secret values', () => {
     assert.match(err.message, /ELEVENLABS_API_KEY/);
     for (const secret of SECRET_VALUES) assert.ok(!err.message.includes(secret), `leaked ${secret}`);
   }
+});
+
+test('interruption defaults: 600 ms, 1 word, resume after false interruptions, VAD threshold 0.6', () => {
+  const { turn } = loadConfig(base);
+  assert.deepEqual(turn, { minDurationMs: 600, minWords: 1, resumeFalse: true, vadActivationThreshold: 0.6 });
+  assert.deepEqual(buildTurnHandling(turn), {
+    turnDetection: 'vad',
+    interruption: { minDuration: 600, minWords: 1, resumeFalseInterruption: true },
+  });
+  assert.deepEqual(buildTurnHandling(), buildTurnHandling(turn));
+});
+
+test('interruption variables override the defaults; empty values and placeholders mean the default', () => {
+  const { turn } = loadConfig({
+    ...base, INTERRUPT_MIN_DURATION_MS: '900', INTERRUPT_MIN_WORDS: '2', INTERRUPT_RESUME_FALSE: '0', VAD_ACTIVATION_THRESHOLD: '0.75',
+  });
+  assert.deepEqual(turn, { minDurationMs: 900, minWords: 2, resumeFalse: false, vadActivationThreshold: 0.75 });
+  assert.deepEqual(loadConfig({ ...base, INTERRUPT_MIN_WORDS: '', INTERRUPT_MIN_DURATION_MS: 'YOUR_VALUE' }).turn.minWords, 1);
+  assert.equal(loadConfig({ ...base, INTERRUPT_MIN_WORDS: '0' }).turn.minWords, 0, '0 is a real value, not "unset"');
+});
+
+test('bad interruption values fail startup naming the variable, alongside any other problems', () => {
+  for (const [name, value] of [
+    ['INTERRUPT_MIN_DURATION_MS', '-1'], ['INTERRUPT_MIN_DURATION_MS', 'fast'], ['INTERRUPT_MIN_DURATION_MS', '600.5'],
+    ['INTERRUPT_MIN_WORDS', '1.5'], ['INTERRUPT_MIN_WORDS', '99'],
+    ['INTERRUPT_RESUME_FALSE', 'yes'], ['VAD_ACTIVATION_THRESHOLD', '1.5'], ['VAD_ACTIVATION_THRESHOLD', '0'],
+  ]) {
+    assert.throws(() => loadConfig({ ...base, [name]: value }), new RegExp(name), `${name}=${value}`);
+  }
+  assert.throws(() => loadConfig({ ...base, STT_PROVIDER: 'nope', INTERRUPT_MIN_WORDS: 'x' }), /STT_PROVIDER[\s\S]*INTERRUPT_MIN_WORDS/);
 });
