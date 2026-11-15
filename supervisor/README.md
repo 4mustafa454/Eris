@@ -5,7 +5,7 @@ logs every call. Contract: `/AGENTS.md`. Chert rules for this folder: `AGENTS.md
 
 M1 scope: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/`, `get_status` and
 `explain_agent` working, a template greeting on `bridge_ready`, and every turn and read-only action logged to a
-session. Not yet: publishing the video grid into calls (M2 part B; the renderer itself is built, see below), sending work to agents (M3), hangup summaries (M4). The other tools
+session. Not yet: sending work to agents (M3), hangup summaries (M4). The other tools
 answer "not available yet".
 
 ## Setup
@@ -48,7 +48,10 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
 3. Say "Status?" The PM calls `get_status` and answers in one or two sentences.
 4. Say "What is agent 2 doing?" It calls `explain_agent` and answers in one sentence.
 5. Say "What is agent 7 doing?" It says Agent 7 doesn't exist.
-6. Say "Tell agent 1 to use the v2 endpoint" or "show me agent 2". Both get "not available yet".
+6. Video: the Agent Console should show the team grid (3 tiles) as the agent's camera. Say "show me agent 2": the picture
+   switches to Agent 2 full screen and the PM answers in one short sentence. "Show me the grid" goes back. "Show me agent 9":
+   "There's no agent 9." and the picture does not change. A new call starts on the grid again.
+   "Tell agent 1 to use the v2 endpoint" still gets "not available yet" (M3).
 7. Hang up, then check what was saved:
    ```sh
    curl -s 'localhost:8787/sessions?limit=1'            # newest session, ended_at set
@@ -57,23 +60,34 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
    The transcript starts with the greeting, then both sides of the conversation. The actions are the
    `get_status` and `explain_agent` calls (plus the stubs that were tried).
 8. Remove `GREET_ON_JOIN` and restart: no greeting in Agent Console (the silent default).
-9. Stop the harness mid-call: the call keeps going and the PM says it can't reach the team.
+9. Stop the harness mid-call: the call keeps going, the video shows the red "HARNESS UNREACHABLE" frame, and the PM says
+   it can't reach the team. Start it again: the grid comes back by itself.
+10. Every 15 s the log prints `[eris] video 15.0 fps at 1920x1080, process cpu NN% of one core, ...`. That is the real
+    CPU cost of voice plus video including the encoder. If it is high (say over 80%) or the picture stutters, set
+    `VIDEO_RESOLUTION=720p` and/or `VIDEO_FPS=10` in `.env.local` and restart.
 
 ## Team view renderer (M2)
 
-`render/` draws the team as 1920×1080 frames from `GET /agents` and `GET /agents/{id}/log` (polled at 2 Hz): a grid of up
-to 3 agents, or one agent full-frame. It redraws only when what is drawn changes, and warns if a redraw takes over 30 ms.
-It needs no keys. It is not yet attached to calls: publishing it as the camera track and the `show_grid` /
-`focus_agent` tools are M2 part B.
+`render/` draws the team as 1920×1080 frames (1280×720 with `VIDEO_RESOLUTION=720p`) from `GET /agents` and
+`GET /agents/{id}/log` (polled at 2 Hz): a grid of up to 3 agents, or one agent full-frame. It redraws only when what is
+drawn changes, and warns if a redraw takes over 30 ms. The renderer needs no keys.
+
+On a call, `src/video.mjs` publishes it as the agent's camera track (same participant as the voice, 15 fps by default,
+set `VIDEO_FPS`) before the PM starts and before the greeting. It is bounded to a few seconds: if publishing fails the
+call carries on audio only and the log says why. `show_grid` and `focus_agent` switch the picture (logged to the session
+like any other tool call). The same view is also at `http://localhost:8788/frame.jpg` while a call, or `npm run frames`,
+is running.
 
 ```sh
 npm run render:samples            # PNGs for every fixture and mode → render/out/samples/ (gitignored)
 npm run render:samples -- --live  # the same from the running harness (HARNESS_URL, default :8787)
 npm run frames                    # serve http://localhost:8788/frame.jpg from the harness; "g" / "f 2" switch mode
+npm run bench:video               # CPU of render + frame hand-off at 1080p/720p and 15/10 fps (no encoder; see its header)
 ```
 
 With `npm run frames` running, stop the harness to see the "harness unreachable" frame, and start it again to see
-recovery. Test PNGs from `npm test` land in `render/out/test/`. The font (DejaVu Sans, free license) is bundled in
+recovery. Test PNGs from `npm test` land in `render/out/test/`. On this machine the render and hand-off cost about 10-14% of
+one core at 15 fps with the picture changing twice a second; the encoder's share is only visible in a real call. The font (DejaVu Sans, free license) is bundled in
 `render/fonts/`. Only one process can hold port 8788 (`FRAME_PORT` to change it); a second logs a warning and runs
 without the mirror.
 

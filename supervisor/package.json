@@ -12,7 +12,8 @@
     "test": "node --test",
     "help": "node agent.mjs --help",
     "render:samples": "node render/dump-samples.mjs",
-    "frames": "node --env-file-if-exists=.env.local render/serve.mjs"
+    "frames": "node --env-file-if-exists=.env.local render/serve.mjs",
+    "bench:video": "node render/bench-video.mjs"
   },
   "dependencies": {
     "@livekit/agents": "1.8.0",
