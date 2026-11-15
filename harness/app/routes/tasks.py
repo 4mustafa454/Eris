@@ -23,7 +23,7 @@ def list_tasks(status: str | None = None, conn: sqlite3.Connection = Depends(get
 
 @router.post('/tasks', response_model=Task)
 async def create_task(body: TaskCreate, conn: sqlite3.Connection = Depends(get_conn), manager=Depends(get_manager)):
-    if body.session_id and sessions.get_session(conn, body.session_id) is None:
+    if body.session_id is not None and sessions.get_session(conn, body.session_id) is None:
         raise HTTPException(404, 'unknown session')
     try:
         return await manager.create_board_task(body.title, body.instruction, body.agent_id, body.session_id)

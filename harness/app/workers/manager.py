@@ -111,7 +111,7 @@ class WorkerManager:
                         status = 'queued'
                         conn.execute('INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?)',
                                      (task_id, title, instruction, status, now, now))
-                    if session_id:
+                    if session_id is not None:
                         args = {'title': title, 'instruction': instruction}
                         if agent_id and agent_id.startswith('agent-') and agent_id[6:].isdigit():
                             args['agent'] = int(agent_id[6:])

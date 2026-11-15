@@ -62,7 +62,8 @@ class PMChat:
         finally:
             conn.close()
         base = (config['LLM_BASE_URL'] or 'https://api.openai.com/v1').rstrip('/')
-        key = os.environ.get('LLM_API_KEY') or os.environ.get('OPENAI_API_KEY')
+        # Never forward an OpenAI key to an independently configured compatible endpoint.
+        key = os.environ.get('OPENAI_API_KEY') if base == 'https://api.openai.com/v1' else os.environ.get('LLM_API_KEY')
         if not key and base == 'https://api.openai.com/v1':
             raise HTTPException(503, 'PM provider is not configured')
         headers = {'Authorization': f'Bearer {key}'} if key else {}

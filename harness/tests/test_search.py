@@ -10,4 +10,5 @@ def test_search_returns_matching_sessions_and_updates_with_fts_triggers(db_file)
         assert len(hits) == 1 and hits[0]['session_id'] == sid
         assert 'endpoint' in hits[0]['snippet'] and hits[0]['created_at']
         assert client.get('/search', params={'q': 'missingword'}).json() == []
-        assert client.get('/search', params={'q': '"unterminated'}).status_code == 422
+        assert client.get('/search', params={'q': '"unterminated'}).json() == []
+        assert client.get('/search', params={'q': 'v2-endpoint?'}).json()[0]['session_id'] == sid

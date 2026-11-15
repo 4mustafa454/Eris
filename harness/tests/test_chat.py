@@ -141,3 +141,57 @@ def test_chat_dispatches_all_shared_tools_to_harness_routes_once(db_file, monkey
         assert all(a['session_id'] == data['session_id'] for a in data['actions'])
         assert client.get('/approvals?status=approved').json()[0]['id'] == 'ap-test'
         assert any(t['title'] == 'New' and t['status'] == 'queued' for t in client.get('/tasks').json())
+
+
+def test_openai_compatible_completion_uses_configured_model_and_safe_errors(db_file, monkeypatch):
+    import httpx
+    from app import db
+    from app.chat import PMChat
+    captured = {}
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {'choices': [{'message': {'content': 'OK'}}]}
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            captured.update({'url': url, **kwargs})
+            return Response()
+    monkeypatch.setattr(httpx, 'AsyncClient', Client)
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test-secret')
+    conn = db.connect()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('LLM_MODEL', 'test-model')")
+    conn.close()
+    async def check():
+        result = await PMChat(app).complete([{'role': 'user', 'content': 'Hi'}], [])
+        assert result['content'] == 'OK'
+        assert captured['url'] == 'https://api.openai.com/v1/chat/completions'
+        assert captured['json']['model'] == 'test-model'
+        assert captured['headers']['Authorization'] == 'Bearer sk-test-secret'
+    asyncio.run(check())
+
+
+def test_custom_compatible_provider_never_receives_openai_key(db_file, monkeypatch):
+    import httpx
+    from app import db
+    from app.chat import PMChat
+    captured = {}
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {'choices': [{'message': {'content': 'OK'}}]}
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            captured.update(kwargs)
+            return Response()
+    monkeypatch.setattr(httpx, 'AsyncClient', Client)
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-openai-private')
+    conn = db.connect()
+    conn.execute("INSERT INTO settings (key, value) VALUES ('LLM_BASE_URL', 'http://localhost:11434/v1')")
+    conn.close()
+    asyncio.run(PMChat(app).complete([{'role': 'user', 'content': 'Hi'}], []))
+    assert captured['headers'] == {}
+    assert 'sk-openai-private' not in str(captured)
