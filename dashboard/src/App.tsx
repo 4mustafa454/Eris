@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LiveProvider, useLive } from './lib/store'
 import Live from './pages/Live'
 import Approvals from './pages/Approvals'
+import Conversations from './pages/Conversations'
 
 const TABS = [
   { id: 'live', label: 'Live' },
@@ -62,7 +63,8 @@ function Shell() {
       <main className="mx-auto w-full max-w-6xl flex-1 p-5">
         {tab === 'live' && <Live />}
         {tab === 'approvals' && <Approvals />}
-        {tab !== 'live' && tab !== 'approvals' && <p className="text-muted">Coming next.</p>}
+        {tab === 'conversations' && <Conversations />}
+        {tab !== 'live' && tab !== 'approvals' && tab !== 'conversations' && <p className="text-muted">Coming next.</p>}
       </main>
     </div>
   )
