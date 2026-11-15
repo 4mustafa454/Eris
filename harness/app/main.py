@@ -1,9 +1,11 @@
 """Eris harness (FastAPI, :8787). Run from harness/: uvicorn app.main:app --port 8787"""
 import asyncio
+import os
 import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, db
 from .alerts import StuckAlerts
@@ -58,6 +60,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Eris harness", lifespan=lifespan)
+# Browser UIs call the harness directly. Default: the dashboard (:5173) and the website (:5190), localhost only.
+# ERIS_CORS_ORIGINS="https://a.example,https://b.example" replaces the list. Never "*".
+_DEFAULT_ORIGINS = [f"http://{h}:{p}" for h in ("localhost", "127.0.0.1") for p in (5173, 5190)]
+_origins = [o.strip() for o in os.environ.get("ERIS_CORS_ORIGINS", "").split(",") if o.strip() and o.strip() != "*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins or _DEFAULT_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(agents_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(context_routes.router)
