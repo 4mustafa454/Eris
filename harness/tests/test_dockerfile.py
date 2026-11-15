@@ -53,3 +53,16 @@ def test_no_secrets_no_remote_no_root_tricks():
 def test_git_is_local_only():
     assert "safe.directory /workspace" in TEXT
     assert "user.email" in TEXT and "user.name" in TEXT
+
+
+def test_codex_image_is_pinned_and_uses_the_same_non_root_setup():
+    codex = (ROOT / "workers" / "codex" / "Dockerfile").read_text()
+    build = (ROOT / "scripts" / "build-codex-worker.sh").read_text()
+    version = config.Settings().codex_worker_image.split(":")[1]
+    assert f"ARG CODEX_VERSION={version}" in codex
+    assert f"eris-codex:{version}" in build
+    assert "@openai/codex@${CODEX_VERSION}" in codex
+    assert 'getent passwd "${WORKER_UID}"' in codex
+    assert 'getent group "${WORKER_GID}"' in codex
+    assert "USER worker" in codex and "refusing to build a root worker" in codex
+    assert "/home/worker/.codex" in codex and 'CMD ["sleep", "infinity"]' in codex

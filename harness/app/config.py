@@ -33,7 +33,7 @@ class Settings:
     secret_name: str | None = None  # which of SECRET_NAMES is set; the value stays in the environment
     stream_log: Path | None = None  # ERIS_STREAM_LOG: where the redacted raw stream is appended, if set
 
-    codex_worker_image: str = "eris-codex:latest"
+    codex_worker_image: str = "eris-codex:0.114.0"
     engines: dict[str, str] = field(default_factory=dict)
 
     def engine_for(self, agent_id: str) -> str:
@@ -133,7 +133,7 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if re.search(r"\s", image):
         problems.append("WORKER_IMAGE must not contain whitespace")
 
-    codex_image = _get(env, "CODEX_WORKER_IMAGE") or "eris-codex:latest"
+    codex_image = _get(env, "CODEX_WORKER_IMAGE") or "eris-codex:0.114.0"
     if re.search(r"\s", codex_image):
         problems.append("CODEX_WORKER_IMAGE must not contain whitespace")
 
