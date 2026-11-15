@@ -182,6 +182,7 @@ CREATE TABLE settings (           -- non-secret config only; secrets live in har
 | GET | `/sessions` | `?channel=&limit=` | `Session[]` newest first |
 | GET | `/sessions/{id}` | — | `Session` + `messages` + `actions` |
 | POST | `/sessions/{id}/messages` | `{ "role", "text" }` | `Message` (supervisor logs every voice turn here) |
+| POST | `/sessions/{id}/actions` | `{ "tool", "args": object, "result": object\|null, "agent_id"? }` | `Action` — for read-only/display tools only (see §5.3 logging rule); 404 on unknown session |
 | POST | `/chat` | `{ "session_id"?, "text" }` | `{ "session_id", "reply", "actions" }` — web channel; runs the shared PM brain; creates a session if none |
 | GET | `/search` | `?q=` | FTS5 hits: `[{session_id, snippet, created_at}]` |
 
@@ -223,7 +224,10 @@ CREATE TABLE settings (           -- non-secret config only; secrets live in har
 - `create_task(title, instruction, agent?)` → POST /tasks
 - `decide_approval(id, decision)` → POST /approvals/{id}
 - `search_history(query)` → GET /search
-Every tool call is logged to `actions` with the current `session_id`.
+Every tool call is logged to `actions` with the current `session_id`, exactly once:
+- **Mutating tools** (`send_task`, `pause_agent`, `resume_agent`, `stop_all`, `create_task`, `decide_approval`) pass `session_id` to their harness route, and **the harness** writes the action row.
+- **Read-only/display tools** (`get_status`, `explain_agent`, `show_grid`, `focus_agent`, `search_history`) are logged **by the caller** (supervisor or `/chat`) via `POST /sessions/{id}/actions`.
+Agent Console test sessions use channel `facetime`; reset the dev DB (`scripts/seed-demo.sh`) before rehearsals so test calls don't appear in recaps.
 
 ### 5.4 PM session lifecycle (both channels)
 1. Start: `POST /sessions` → `GET /context` → inject into system prompt as "What happened last time" + current state.
@@ -285,8 +289,8 @@ Mark `stuck` with `stuck_reason` when: final message contains a line starting `B
 ```
 LIVEKIT_URL=  LIVEKIT_API_KEY=  LIVEKIT_API_SECRET=
 AGENT_NAME=eris
-STT_PROVIDER=deepgram           # deepgram | elevenlabs
-TTS_PROVIDER=elevenlabs         # elevenlabs | deepgram
+STT_PROVIDER=deepgram           # deepgram | elevenlabs | openai-compatible
+TTS_PROVIDER=deepgram           # deepgram (dev default) | elevenlabs (demo) | openai-compatible
 DEEPGRAM_API_KEY=               # $200 free credit; default STT
 ELEVENLABS_API_KEY=             # shared credit pool for STT+TTS; use Flash TTS model
 ELEVENLABS_VOICE_ID=
@@ -297,7 +301,9 @@ HARNESS_URL=http://localhost:8787
 ```
 `harness/.env`: `OPENAI_API_KEY=`, `LLM_BASE_URL=`, `LLM_MODEL=`, `CLAUDE_CODE_OAUTH_TOKEN=`, `NTFY_TOPIC=`, `WORKER_COUNT=3`.
 - Keep the Chert starter's `@livekit/agents` version; add deepgram/elevenlabs/openai/silero plugins at the **same** version.
-- STT and TTS are chosen at startup from `STT_PROVIDER` / `TTS_PROVIDER` — no code change to switch. Default: Deepgram STT + ElevenLabs Flash TTS (two providers so one outage or empty credit pool doesn't kill both directions).
+- STT/TTS/LLM come from provider registries in `supervisor/src/config.mjs` (`STT_PROVIDER` / `TTS_PROVIDER` / `LLM_PROVIDER`; entries: deepgram, elevenlabs, openai-compatible; LLM: openai, openai-compatible). Unknown provider or missing key fails at startup naming the role and the supported list; secrets are never printed.
+- **Code defaults:** deepgram / deepgram / openai (works with one Deepgram key; saves ElevenLabs credits in dev). **Rehearsal/demo `.env.local`:** `TTS_PROVIDER=elevenlabs` (better voice; two providers so one outage or empty credit pool doesn't kill both directions). Fall back to `deepgram` if ElevenLabs credits run out.
+- Turn detection is VAD-based (Silero); the default turn detector needs LiveKit's inference executor, which Chert rooms don't provide.
 - PM style: 1–2 short sentences, agents are "Agent 1/2/3", never read logs verbatim.
 
 ## 11. Chert specifics (do not fight these)
@@ -316,10 +322,10 @@ Authoritative, version-matched rules live in `supervisor/AGENTS.md` (generated b
 
 ## 12. Milestones
 - **M0** SQLite schema + `/agents` (mock workers) + `/sessions` + `/context` + `shared/pm/` files.
-- **M1** Supervisor answers "status?" in Agent Console from M0, logging turns to a session.
+- **M1** Supervisor answers "status?" in Agent Console from M0, logging turns + read-only actions to a session (adds `POST /sessions/{id}/actions`). Hangup sets `ended_at` only; greeting recap from current state.
 - **M2** Renderer grid + focus by voice; `frame.jpg` served.
 - **M3** One real Claude Code worker driven by `send_task`; events → lines.
-- **M4** 3 workers (Claude Code + Codex); stuck detection + ntfy; session summary on hangup; PM recalls last call.
+- **M4** 3 workers (Claude Code + Codex); stuck detection + ntfy; **session summary on hangup (PATCH summary)**; greeting recap includes last call from `recent_summaries`.
 - **M5** Dashboard: Live + Conversations (search + continue via `/chat`).
 - **M6** Tasks board + approvals (voice + web) + Settings with provider tests.
 - **M7** Caller-frame "look at this"; on a Chert line: full demo script end to end; mock mode + recorded backup; Devpost ("Best Use of FaceTime (Chert)").
