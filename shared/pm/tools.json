@@ -1,0 +1,177 @@
+[
+  {
+    "name": "get_status",
+    "description": "Get the current state of every agent: state, task, one-line summary, and stuck reason if any. Call this before answering any question about what the team is doing.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "show_grid",
+    "description": "Switch the video to the grid view showing all agents side by side. Voice calls only; on web chat this does nothing.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "focus_agent",
+    "description": "Switch the video to a full-screen view of one agent (\"show me agent 2\"). Voice calls only; on web chat this does nothing.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Agent number, e.g. 2 for Agent 2."
+        }
+      },
+      "required": ["n"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "send_task",
+    "description": "Give an agent an instruction: a new task or a follow-up to what it is already doing (\"tell agent 1 to use the v2 endpoint\"). Use this to unblock a stuck agent.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Agent number, e.g. 1 for Agent 1."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the agent should do, in plain words."
+        }
+      },
+      "required": ["n", "instruction"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "pause_agent",
+    "description": "Pause an agent so it stops working until resumed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Agent number."
+        }
+      },
+      "required": ["n"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "resume_agent",
+    "description": "Resume a paused agent.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Agent number."
+        }
+      },
+      "required": ["n"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "stop_all",
+    "description": "Emergency kill switch: stop every agent immediately (\"stop everything\"). Use only when the user clearly asks to stop all work.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "explain_agent",
+    "description": "Fetch an agent's recent activity log so you can say what it is doing. Summarize the result in one short sentence; never read the log aloud.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Agent number."
+        }
+      },
+      "required": ["n"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_task",
+    "description": "Create a task on the board. With an agent number it starts on that agent immediately; without one it waits in the queue.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short task title."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full instruction for the agent."
+        },
+        "agent": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional agent number to assign the task to."
+        }
+      },
+      "required": ["title", "instruction"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "decide_approval",
+    "description": "Approve or deny a pending approval, such as an agent asking to push. Only call this after the user has clearly said yes or no.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Approval id, as listed in the pending approvals."
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["approved", "denied"],
+          "description": "The user's decision."
+        }
+      },
+      "required": ["id", "decision"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search_history",
+    "description": "Full-text search over past calls and chats. Use when the user asks about something discussed earlier that is not in the recap.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Words to search for."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  }
+]
