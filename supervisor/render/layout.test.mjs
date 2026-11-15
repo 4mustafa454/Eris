@@ -4,7 +4,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { LONG_REASON, LONG_LINE, LONG_TITLE, MODELS, SIX_STATES, THREE, logsFor } from './fixtures.mjs';
 import { registerFonts } from './fonts.mjs';
 import { cornerZones, effectiveView, fitText, layout, layoutFocus, layoutGrid, layoutUnreachable, modelKey, rowWidth, safeOf, wrapText } from './layout.mjs';
-import { FONT_STACK, HEIGHT, LANDSCAPE, MIN_FOCUS_PX, MIN_GRID_PX, PORTRAIT, WIDTH } from './theme.mjs';
+import { COLORS, FONT_STACK, HEIGHT, LANDSCAPE, MIN_FOCUS_PX, MIN_GRID_PX, PORTRAIT, WIDTH } from './theme.mjs';
 
 const FRAMES = { landscape: LANDSCAPE, portrait: PORTRAIT };
 
@@ -65,10 +65,10 @@ for (const [orientation, frame] of Object.entries(FRAMES)) {
   }
 }
 
-test('grid shows 1, 2, 3 tiles and caps at 3', () => {
+test('grid shows up to six tiles', () => {
   const stripes = m => layoutGrid(grid(m), measure).filter(o => o.type === 'rect' && o.w === 8).length;
   for (const key of ['one', 'two', 'three']) assert.equal(stripes(MODELS[key]), MODELS[key].agents.length);
-  assert.equal(stripes(MODELS['six-states']), 3);
+  assert.equal(stripes(MODELS['six-states']), 6);
 });
 
 test('every state has its text label and glyph in the output', () => {
@@ -94,13 +94,13 @@ test('focus shows stuck_reason only when stuck', () => {
   assert.equal(has(working), false);
 });
 
-test('focus shows at most ~10 log lines, grid at most 5', () => {
+test('focus caps logs while grid fills available space', () => {
   const m = { agents: [THREE[1]], logs: { 'agent-2': Array.from({ length: 40 }, (_, i) => `line ${i}`) } };
   const logLines = ops => texts(ops).filter(o => /^line \d+$/.test(o.text));
   const f = logLines(layoutFocus(focus(m, 'agent-2'), measure));
   assert.ok(f.length >= 8 && f.length <= 10);
   assert.equal(f.at(-1).text, 'line 39');
-  assert.equal(logLines(layoutGrid(grid(m), measure)).length, 5);
+  assert.ok(logLines(layoutGrid(grid(m), measure)).length > 5);
 });
 
 test('long text is truncated with an ellipsis', () => {
@@ -148,20 +148,24 @@ test('modelKey: ignores what is not drawn, changes with what is', () => {
 const tiles = ops => ops.filter(o => o.type === 'rect' && o.w === 8); // the colour stripes, one per tile
 const panels = ops => ops.filter(o => o.type === 'rect' && o.radius === 16);
 
-test('portrait grid: 1, 2, 3 tiles stacked vertically at full width, none overlapping, capped at 3', () => {
-  for (const [key, count] of [['one', 1], ['two', 2], ['three', 3], ['six-states', 3], ['long', 3]]) {
-    const ps = panels(layoutGrid(grid(MODELS[key]), measure, PORTRAIT));
-    assert.equal(ps.length, count, key);
-    assert.ok(ps.every(p => p.x === 110 && p.w === PORTRAIT.width - 220), `${key}: full width between the safe sides`);
-    ps.slice(1).forEach((p, i) => assert.ok(p.y >= ps[i].y + ps[i].h, `${key}: tile ${i + 2} overlaps the one above`));
-    assert.equal(tiles(layoutGrid(grid(MODELS[key]), measure, PORTRAIT)).length, count);
+test('portrait grid adapts to one through six agents without overlapping tiles', () => {
+  for (const count of [1, 2, 3, 4, 5, 6]) {
+    const agents = SIX_STATES.slice(0, count);
+    const ops = layoutGrid(grid({ agents, logs: logsFor(agents) }), measure, PORTRAIT);
+    const ps = panels(ops);
+    assert.equal(ps.length, count);
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const a = ps[i], b = ps[j];
+      assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+    }
+    assertInsideSafe(ops, PORTRAIT, SAFE, `${count} agents`);
+    assertOutOfCorners(ops, PORTRAIT, `${count} agents`);
+    assert.ok(texts(ops).every(o => o.fontPx >= MIN_GRID_PX));
+    for (const agent of agents) {
+      assert.ok(texts(ops).some(o => o.text === agent.name), `${agent.name} remains legible`);
+      assert.ok(texts(ops).some(o => o.text.includes(agent.state.toUpperCase())), `${agent.name} state is visible`);
+    }
   }
-});
-
-test('portrait grid: tile positions do not move when the number of agents changes', () => {
-  const y = key => panels(layoutGrid(grid(MODELS[key]), measure, PORTRAIT)).map(p => [p.y, p.h]);
-  assert.deepEqual(y('three').slice(0, 1), y('one'));
-  assert.deepEqual(y('three').slice(0, 2), y('two'));
 });
 
 test('portrait grid: the stripe uses the agent colour, in order top to bottom', () => {
@@ -179,11 +183,11 @@ test('portrait grid: every text op stays inside its own tile', () => {
   }
 });
 
-test('portrait grid: the safe-area tiles are shorter, so each shows 4 log lines (not 5), the latest ones', () => {
+test('portrait grid: one tile fills the space with recent logs', () => {
   const m = { agents: [THREE[1]], logs: { 'agent-2': Array.from({ length: 40 }, (_, i) => `line ${i}`) } };
   const lines = texts(layoutGrid(grid(m), measure, PORTRAIT)).filter(o => /^line \d+$/.test(o.text));
-  assert.equal(lines.length, 4);
-  assert.deepEqual(lines.map(o => o.text), ['line 36', 'line 37', 'line 38', 'line 39']);
+  assert.ok(lines.length > 5);
+  assert.equal(lines.at(-1).text, 'line 39');
   assert.ok(lines.every(o => o.fontPx >= MIN_GRID_PX), 'the minimum text size is kept');
 });
 
@@ -310,7 +314,7 @@ test('portrait grid: the three tiles share the safe height exactly (120 to 1660)
   assert.equal(ps[0].y, 120);
   const end = ps.at(-1).y + ps.at(-1).h;
   assert.ok(end <= 1660 && end >= 1658, `the last tile ends at ${end}: inside the safe area, within 2 px of its edge (integer tile heights)`);
-  assert.ok(ps.every(p => p.h === ps[0].h), 'equal heights');
+  assert.ok(ps.every(p => Math.abs(p.h - ps[0].h) <= 1), 'equal heights apart from rounding');
 });
 
 test('portrait focus: the colour stripe covers the safe height only', () => {
@@ -329,9 +333,7 @@ test('the safe area is configurable through the frame; zero insets give the marg
   const ps = panels(layoutGrid(grid(MODELS.three), measure, none));
   assert.deepEqual([ps[0].x, ps[0].y, ps[0].w], [40, 40, 1000], 'the 40 px margin still applies');
   assert.ok(ps.at(-1).y + ps.at(-1).h <= 1880 && ps.at(-1).y + ps.at(-1).h >= 1878);
-  assert.equal(texts(layoutGrid(grid(MODELS.three), measure, none)).filter(o => o.fontPx === 32).length, 5 * 3, 'taller tiles bring the 5th log line back');
-  const perTile = ops => panels(ops).map(p => texts(ops).filter(o => o.fontPx === 32 && o.y >= p.y && o.y < p.y + p.h).length);
-  assert.deepEqual(perTile(layoutGrid(grid(MODELS.three), measure, PORTRAIT)), [3, 4, 4], 'the default safe area: 4 per tile, 3 where the title wraps (tile 1)');
+  assertInsideSafe(layoutGrid(grid(MODELS.three), measure, none), none, none.safe, 'zero insets');
 });
 
 test('the largest configurable safe area (450 + 450 top/bottom, 250 each side) still fits every state badge and all text', () => {
@@ -395,8 +397,8 @@ test('grid title wrapping: 3 log lines where the title takes two lines, 4 where 
   const m = { agents: [{ ...THREE[0], task: 'Add input validation to /signup' }, { ...THREE[1], task: 'Write tests' }, { ...THREE[2], task: 'Rename the package' }], logs };
   const ops = layoutGrid(grid(m), measure, PORTRAIT);
   const perTile = panels(ops).map(p => texts(ops).filter(o => /^entry \d$/.test(o.text) && o.y >= p.y && o.y < p.y + p.h));
-  assert.deepEqual(perTile.map(t => t.length), [3, 4, 4]);
-  assert.deepEqual(perTile[0].map(o => o.text), ['entry 7', 'entry 8', 'entry 9'], 'the latest ones');
+  assert.ok(perTile.every(t => t.length >= 3));
+  assert.ok(perTile.every(t => t.at(-1).text === 'entry 9'), 'the latest lines are shown');
   assert.ok(texts(ops).every(o => o.fontPx >= MIN_GRID_PX));
   assertInsideSafe(ops, PORTRAIT, SAFE, 'wrapped');
   assertOutOfCorners(ops, PORTRAIT, 'wrapped');
@@ -413,7 +415,7 @@ test('landscape grid titles stay on one line (wrapping is a portrait-only change
 test('a tile with no room for any log line shows none, not all of them (the largest safe area, a wrapped title)', () => {
   const big = { ...PORTRAIT, safe: { top: 450, bottom: 450, side: 250 } };
   const logs = { 'agent-1': Array.from({ length: 10 }, (_, i) => `entry ${i}`) };
-  const m = { agents: [{ ...THREE[0], task: 'Refactor the entire signup flow to validate every field and normalise emails' }], logs };
+  const m = { agents: THREE.map(a => ({ ...a, task: 'Refactor the entire signup flow to validate every field and normalise emails' })), logs };
   const ops = layoutGrid(grid(m), measure, big);
   assert.equal(texts(ops).filter(o => /^entry \d$/.test(o.text)).length, 0);
   assertInsideSafe(ops, big, big.safe, 'no room');
@@ -430,7 +432,8 @@ test('wrapText takes a width per line', () => {
 test('portrait side bands: stripe, badge and text start at the safe side and end before the right one, in every fixture', () => {
   for (const [name, m] of Object.entries(MODELS)) {
     const grid = layoutGrid({ mode: 'grid', harness: 'ok', ...m }, measure, PORTRAIT);
-    assert.deepEqual(tiles(grid).map(o => o.x), m.agents.slice(0, 3).map(() => 110), `${name}: grid stripes`);
+    assert.ok(tiles(grid).every(o => o.x >= 110 && o.x + o.w <= 970), `${name}: grid stripes`);
+    assert.equal(tiles(grid).length, Math.min(m.agents.length, 6));
     for (const a of m.agents) {
       const f = layoutFocus(focus(m, a.id), measure, PORTRAIT);
       assert.equal(f.filter(o => o.type === 'rect' && o.w === 16)[0].x, 110, `${name}: focus stripe`);
@@ -450,8 +453,79 @@ test('with the side bands the stuck reason still fits in its box without being c
   assertInsideSafe(ops, PORTRAIT, SAFE, 'stuck');
 });
 
-test('portrait: narrower content never costs more than the one log line the shorter tiles already dropped', () => {
+test('portrait: a single agent shows more than five log lines', () => {
   const m = { agents: [THREE[1]], logs: { 'agent-2': Array.from({ length: 40 }, (_, i) => `line ${i}`) } };
   const lines = texts(layoutGrid(grid(m), measure, PORTRAIT)).filter(o => o.fontPx === 32);
-  assert.equal(lines.length, 4);
+  assert.ok(lines.length > 5);
+});
+
+test('pending approval banner and highlighted tile stay in the portrait safe area', () => {
+  const approvals = [{ id: 'ap1', agent_id: 'agent-2', action: 'git_push', status: 'pending' }];
+  const model = grid({ agents: SIX_STATES, logs: logsFor(SIX_STATES), approvals });
+  const ops = layoutGrid(model, measure, PORTRAIT);
+  assertFits(ops, 'approval grid', PORTRAIT);
+  assertInsideSafe(ops, PORTRAIT, SAFE, 'approval grid');
+  assertOutOfCorners(ops, PORTRAIT, 'approval grid');
+  assert.ok(texts(ops).some(o => /Approval: Agent 2 · git push/.test(o.text)));
+  assert.ok(texts(ops).some(o => /Say approve or deny/.test(o.text)));
+  const ps = panels(ops);
+  assert.equal(ps.length, 6);
+  assert.equal(ps.filter(p => p.fill === '#574421').length, 1);
+  assert.equal(ps[1].fill, '#574421');
+  assert.notEqual(modelKey(model), modelKey({ ...model, approvals: [] }));
+  const without = layoutGrid({ ...model, approvals: [{ ...approvals[0], status: 'approved' }] }, measure, PORTRAIT);
+  assert.equal(panels(without).filter(p => p.fill === '#574421').length, 0);
+  assert.ok(!texts(without).some(o => /Say approve or deny/.test(o.text)));
+});
+
+test('six compact tiles remain legible and contained with large safe margins and an approval', () => {
+  const frame = { ...PORTRAIT, safe: { top: 450, bottom: 450, side: 250 } };
+  const approvals = [{ id: 'ap', agent_id: 'agent-2', action: 'git_push', status: 'pending' }];
+  const ops = layoutGrid(grid({ agents: SIX_STATES, logs: logsFor(SIX_STATES), approvals }), measure, frame);
+  const ps = panels(ops);
+  assert.equal(ps.length, 6);
+  for (const op of texts(ops).filter(o => o.y >= ps[0].y)) {
+    const panel = ps.find(p => op.x >= p.x && op.y >= p.y && op.x < p.x + p.w && op.y < p.y + p.h);
+    assert.ok(panel, `no tile for ${op.text}`);
+    assert.ok(op.y + op.fontPx <= panel.y + panel.h, `${op.text} exceeds its tile`);
+    assert.ok(op.fontPx >= MIN_GRID_PX);
+  }
+  assertInsideSafe(ops, frame, frame.safe, 'compact approval grid');
+});
+
+test('six portrait tiles fill the safe height and prioritize blockers over logs', () => {
+  const approvals = [{ id: 'ap', agent_id: 'agent-2', action: 'git_push', status: 'pending' }];
+  const logs = Object.fromEntries(SIX_STATES.map(a => [a.id, Array.from({ length: 20 }, (_, i) => `entry ${i}`)]));
+  const model = grid({ agents: SIX_STATES, logs, approvals });
+  const ops = layoutGrid(model, measure, PORTRAIT);
+  const ps = panels(ops);
+  const banner = ops.find(o => o.type === 'rect' && o.fill === COLORS.warn);
+  assert.equal(ps[0].y, banner.y + banner.h + 24);
+  assert.equal(ps.at(-1).y + ps.at(-1).h, PORTRAIT.height - SAFE.bottom);
+  assertOutOfCorners(ops, PORTRAIT, 'six with banner');
+  assert.ok(texts(ops).find(o => o.text === 'Say approve or deny').fontPx > 28);
+  ps.forEach((p, i) => {
+    const inPanel = texts(ops).filter(o => o.x >= p.x && o.x < p.x + p.w && o.y >= p.y && o.y < p.y + p.h);
+    const entries = inPanel.filter(o => /^entry \d+$/.test(o.text));
+    if (SIX_STATES[i].state === 'stuck') {
+      assert.equal(entries.length, 0);
+      const reason = inPanel.filter(o => o.fill === COLORS.warnText);
+      assert.ok(reason.length >= 1 && reason.length <= 2);
+      assert.ok(reason[0].text.startsWith('BLOCKED:'));
+      assert.ok(reason.at(-1).text.endsWith('…'));
+    } else assert.ok(entries.length >= 1, `no log for ${SIX_STATES[i].id}`);
+  });
+});
+
+test('three portrait tiles keep blocker and at least three logs below an approval banner', () => {
+  const approvals = [{ id: 'ap', agent_id: 'agent-2', action: 'git_push', status: 'pending' }];
+  const logs = Object.fromEntries(THREE.map(a => [a.id, Array.from({ length: 20 }, (_, i) => `entry ${i}`)]));
+  const ops = layoutGrid(grid({ agents: THREE, logs, approvals }), measure, PORTRAIT);
+  const ps = panels(ops);
+  assertOutOfCorners(ops, PORTRAIT, 'three with banner');
+  for (const p of ps) {
+    const inPanel = texts(ops).filter(o => o.x >= p.x && o.x < p.x + p.w && o.y >= p.y && o.y < p.y + p.h);
+    assert.ok(inPanel.filter(o => /^entry \d+$/.test(o.text)).length >= 3);
+  }
+  assert.ok(texts(ops).some(o => o.text.startsWith('BLOCKED:')));
 });

@@ -9,6 +9,7 @@ from app import db, tasks
 from app.config import Settings
 from app.main import app
 from app.models import AgentState
+from app.workers.docker import worker_prompt
 from app.workers.manager import WorkerManager
 
 from fakes import FakeContainer, FakeSpawn
@@ -181,7 +182,7 @@ def test_the_route_drives_a_real_worker_and_stop_all_interrupts_it(db_file, tmp_
             if spawn.argvs:
                 break
             time.sleep(0.01)
-        assert spawn.argvs[0][-2:] == ["--", "Run the tests and fix the failing one"] and "--resume" not in spawn.argvs[0]
+        assert spawn.argvs[0][-2:] == ["--", worker_prompt("Run the tests and fix the failing one")] and "--resume" not in spawn.argvs[0]
         out = c.post("/stop-all").json()
         assert {a["id"]: a["state"] for a in out}["agent-1"] == "paused"
         assert interrupts and all(p.rc is not None for p in spawn.procs)
@@ -195,3 +196,68 @@ def test_list_tasks_returns_history_and_filters_by_status(client):
     assert done.status_code == 200
     assert all(t['status'] == 'done' for t in done.json())
     assert {t['agent_id'] for t in done.json()} == {'agent-3'}
+
+
+def test_pause_resume_preserves_mock_task_and_logs_actions_once(client, sid):
+    before = agent(client, 'agent-1')
+    paused = client.post('/agents/agent-1/pause', json={'session_id': sid})
+    assert paused.status_code == 200 and paused.json()['state'] == 'paused'
+    assert paused.json()['task'] == before['task']
+    resumed = client.post('/agents/agent-1/resume', json={'session_id': sid})
+    assert resumed.status_code == 200 and resumed.json()['state'] == 'working'
+    assert resumed.json()['task'] == before['task']
+    assert [a['tool'] for a in client.get(f'/sessions/{sid}').json()['actions']] == ['pause_agent', 'resume_agent']
+
+
+def test_pause_resume_rejects_unknown_session_or_agent(client):
+    assert client.post('/agents/agent-9/pause', json={}).status_code == 404
+    assert client.post('/agents/agent-1/resume', json={'session_id': 'missing'}).status_code == 404
+
+
+def test_create_and_assign_tasks_follow_queue_rules(client, sid):
+    first = client.post('/tasks', json={'title': 'First', 'instruction': 'Do first', 'agent_id': 'agent-1', 'session_id': sid})
+    assert first.status_code == 200 and first.json()['status'] == 'queued'
+    before = agent(client, 'agent-1')
+    assert agent(client, 'agent-1')['task'] == before['task']
+    unassigned = client.post('/tasks', json={'title': 'Next', 'instruction': 'Do next'}).json()
+    assert unassigned['status'] == 'queued' and unassigned['agent_id'] is None
+    assigned = client.patch('/tasks/' + unassigned['id'], json={'agent_id': 'agent-3'})
+    assert assigned.status_code == 200 and assigned.json()['status'] == 'working'
+    assert agent(client, 'agent-3')['task'] == 'Next'
+    actions = client.get(f'/sessions/{sid}').json()['actions']
+    assert len(actions) == 1 and actions[0]['tool'] == 'create_task'
+
+
+def test_task_cancel_releases_agent_and_starts_oldest_queued(client):
+    current = sql("SELECT task_id FROM agents WHERE id = 'agent-1'")[0]['task_id']
+    queued = client.post('/tasks', json={'title': 'Queued', 'instruction': 'Next', 'agent_id': 'agent-1'}).json()
+    result = client.patch('/tasks/' + current, json={'status': 'cancelled'})
+    assert result.status_code == 200 and result.json()['status'] == 'cancelled'
+    assert agent(client, 'agent-1')['task'] == 'Queued'
+    assert sql('SELECT status FROM tasks WHERE id = ?', queued['id'])[0]['status'] == 'working'
+
+
+def test_task_conflicts_and_validation_leave_work_intact(client):
+    current = sql("SELECT task_id FROM agents WHERE id = 'agent-1'")[0]['task_id']
+    assert client.patch('/tasks/' + current, json={'agent_id': 'agent-2'}).status_code == 409
+    assert client.patch('/tasks/' + current, json={'status': 'queued'}).status_code == 409
+    assert client.post('/tasks', json={'title': 'x', 'instruction': 'y', 'agent_id': 'agent-9'}).status_code == 404
+    assert client.patch('/tasks/missing', json={'agent_id': 'agent-1'}).status_code == 404
+    assert client.post('/tasks', json={'title': '  ', 'instruction': 'y'}).status_code == 422
+    assert agent(client, 'agent-1')['task'] is not None
+
+
+def test_new_task_does_not_jump_an_existing_queued_task(client):
+    conn = db.connect()
+    conn.execute("INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES ('older', 'agent-3', 'Older', 'Do old work', 'queued', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')")
+    conn.close()
+    response = client.post('/tasks', json={'title': 'Newer', 'instruction': 'Do new work', 'agent_id': 'agent-3'})
+    assert response.status_code == 200 and response.json()['status'] == 'queued'
+    assert agent(client, 'agent-3')['task'] == 'Older'
+    assert sql("SELECT status FROM tasks WHERE id = 'older'")[0]['status'] == 'working'
+
+
+def test_task_title_does_not_have_an_uncontracted_length_limit(client):
+    title = 'Long task title ' * 20
+    response = client.post('/tasks', json={'title': title, 'instruction': 'Do the task.'})
+    assert response.status_code == 200 and response.json()['title'] == title.strip()

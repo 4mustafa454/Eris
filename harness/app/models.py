@@ -30,6 +30,26 @@ class Task(BaseModel):
     updated_at: str
 
 
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1)
+    instruction: str = Field(min_length=1, max_length=20000)
+    agent_id: str | None = None
+    session_id: str | None = None
+
+    @field_validator('title', 'instruction')
+    @classmethod
+    def not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('must not be blank')
+        return value
+
+
+class TaskPatch(BaseModel):
+    status: Literal['queued', 'working', 'stuck', 'done', 'cancelled'] | None = None
+    agent_id: str | None = None
+
+
 class Approval(BaseModel):
     id: str
     agent_id: str
@@ -39,6 +59,11 @@ class Approval(BaseModel):
     session_id: str | None = None
     created_at: str
     decided_at: str | None = None
+
+
+class ApprovalDecision(BaseModel):
+    decision: Literal["approved", "denied"]
+    session_id: str | None = None
 
 
 class Session(BaseModel):
@@ -97,6 +122,10 @@ class TaskInstruction(BaseModel):  # POST /agents/{id}/task (§5.2)
         return value
 
 
+class SessionRef(BaseModel):
+    session_id: str | None = None
+
+
 class SessionCreate(BaseModel):
     channel: Channel
 
@@ -110,6 +139,19 @@ class SessionPatch(BaseModel):
 class MessageCreate(BaseModel):
     role: Role
     text: str
+
+
+class ChatRequest(BaseModel):
+    session_id: str | None = None
+    text: str = Field(min_length=1, max_length=20000)
+
+    @field_validator('text')
+    @classmethod
+    def text_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('text must not be blank')
+        return value
 
 
 class RecentSummary(BaseModel):

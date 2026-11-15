@@ -184,3 +184,25 @@ describe('failure handling', () => {
     assert.ok(Date.now() - started < 1000);
   });
 });
+
+test('new PM route clients pass the session and encode search and approval IDs', async () => {
+  const seen = [];
+  const harness = createHarness({ baseUrl: 'http://h', fetchImpl: async (url, options) => {
+    seen.push({ url, method: options.method, body: options.body ? JSON.parse(options.body) : null });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+  } });
+  await harness.pauseAgent('agent-2', 'sid');
+  await harness.resumeAgent('agent-2', 'sid');
+  await harness.createTask('Tests', 'Write tests', 'agent-2', 'sid');
+  await harness.decideApproval('approval one', 'denied', 'sid');
+  await harness.searchHistory('v2 endpoint');
+  await harness.getApprovals();
+  assert.deepEqual(seen.map(x => [x.method, x.url, x.body]), [
+    ['POST', 'http://h/agents/agent-2/pause', { session_id: 'sid' }],
+    ['POST', 'http://h/agents/agent-2/resume', { session_id: 'sid' }],
+    ['POST', 'http://h/tasks', { title: 'Tests', instruction: 'Write tests', agent_id: 'agent-2', session_id: 'sid' }],
+    ['POST', 'http://h/approvals/approval%20one', { decision: 'denied', session_id: 'sid' }],
+    ['GET', 'http://h/search?q=v2+endpoint', null],
+    ['GET', 'http://h/approvals?status=pending', null],
+  ]);
+});

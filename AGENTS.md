@@ -236,7 +236,7 @@ Agent Console test sessions use channel `facetime`; reset the dev DB (`scripts/s
 
 ### 5.5 Frames
 - Renderer lives **inside** the supervisor (no IPC for pixels). Polls `/agents` + `/agents/{id}/log` ~2 Hz; draws 1920×1080; publishes at 15 fps (repeat last frame).
-- Modes: `grid` (≤3 tiles, ~28px min text, color badge per state) and `focus` (one agent, ~36px min text).
+- Modes: `grid` (1–6 tiles in an adaptive layout, ~28px min text, color badge per state) and `focus` (one agent, ~36px min text).
 - Also serves the latest frame as JPEG at `http://localhost:8788/frame.jpg` for the dashboard Live page.
 
 ## 6. Dashboard (`dashboard/`, Vite + React, :5173)
@@ -258,7 +258,7 @@ Both run in Docker as a **non-root user**, repo mounted at `/workspace`. Workers
 - Gotcha: skip-permissions refuses to run as root. Non-root user + explicit `HOME`.
 
 **Codex**
-- Auth: host `codex login` (ChatGPT account) → mount `~/.codex/auth.json` read-write (password-level secret; never commit).
+- Auth: host `codex login` (ChatGPT account) → mount `~/.codex/auth.json` **read-only** (deliberate, commit 8151666; password-level secret, never commit). The container cannot refresh the token, so before the demo run a small Codex task on the host (`codex exec "reply ok"`) to refresh it, then check agent-3 with a tiny task.
 - Run: `codex exec --json --sandbox danger-full-access "<task>"` (container is the sandbox; `--full-auto` is deprecated).
 - Follow-ups: `codex exec resume <thread_id> "<instruction>"`; thread id from the first JSON event.
 - Needs a git repo in `/workspace` (or `--skip-git-repo-check`).

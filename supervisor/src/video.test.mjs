@@ -191,3 +191,59 @@ test('the safe area from the video settings is handed to the render loop', async
   assert.deepEqual(lp.rec.args.safe, { top: 120, bottom: 260, side: 110 });
   assert.deepEqual([lp.rec.args.width, lp.rec.args.height], [1080, 1920]);
 });
+
+test('call publishes camera and audio from one participant and mirrors the published pixels', async () => {
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+  const { startRenderLoop } = await import('../render/index.mjs');
+  const { handleCall } = await import('./call.mjs');
+  const { EventEmitter } = await import('node:events');
+  const r = fakeRtc();
+  const publications = [];
+  const localParticipant = {
+    async publishTrack(track, options) { publications.push({ owner: this, track, options }); return { sid: track.name }; },
+    async unpublishTrack() {},
+  };
+  const room = { localParticipant, on() {}, off() {}, metadata: '' };
+  let shutdown;
+  const ctx = { room, connect: async () => {}, waitForParticipant: async () => ({ identity: 'console' }), addShutdownCallback: f => { shutdown = f; } };
+  class Session extends EventEmitter {
+    async start({ room: callRoom }) { await callRoom.localParticipant.publishTrack({ name: 'audio', kind: 'audio' }, { source: 'microphone' }); }
+    async close() {}
+  }
+  class Agent { constructor() {} }
+  const agents = [{ id: 'agent-1', name: 'Agent 1', color: '#7F77DD', state: 'working', task: 'Test', engine: 'codex' }];
+  const harness = { createSession: async () => null, getContext: async () => ({ agents, recent_summaries: [], open_tasks: [], pending_approvals: [] }),
+    getAgents: async () => agents, getLog: async () => ({ lines: ['read file'] }) };
+  const timers = fakeTimers();
+  let loop;
+  await handleCall(ctx, { config: { greetOnJoin: false }, harness, createProviders: () => ({ stt: {}, tts: {}, llm: {} }),
+    vad: {}, voice: { AgentSession: Session, Agent }, log: quiet(),
+    startVideo: callRoom => startTeamVideo({ room: callRoom, harness, video: { fps: 15, width: 360, height: 640 }, rtc: r.rtc,
+      every: timers.every, log: quiet(), createLoop: async opts => (loop = await startRenderLoop({ ...opts, port: 0 })) }),
+  });
+  try {
+    assert.equal(publications.length, 2);
+    assert.ok(publications.every(p => p.owner === localParticipant));
+    assert.equal(publications.find(p => p.track.name === 'eris-team').options.source, r.rtc.TrackSource.SOURCE_CAMERA);
+    assert.equal(publications.find(p => p.track.name === 'audio').options.source, 'microphone');
+    timers.timers[0].fn();
+    const captured = r.rec.captured.at(-1).data;
+    const jpeg = Buffer.from(await (await fetch(`http://127.0.0.1:${loop.port}/frame.jpg`)).arrayBuffer());
+    const image = await loadImage(jpeg);
+    const canvas = createCanvas(360, 640);
+    const painter = canvas.getContext('2d');
+    painter.drawImage(image, 0, 0);
+    const decoded = painter.getImageData(0, 0, 360, 640).data;
+    let difference = 0;
+    for (let i = 0; i < captured.length; i += 4) {
+      difference += Math.abs(captured[i] - decoded[i]) + Math.abs(captured[i + 1] - decoded[i + 1]) + Math.abs(captured[i + 2] - decoded[i + 2]);
+    }
+    assert.ok(difference / (360 * 640 * 3) < 5, 'JPEG pixels correspond to the published RGBA frame');
+    loop.setMode('focus', 'agent-1');
+    const beforePump = Buffer.from(await (await fetch(`http://127.0.0.1:${loop.port}/frame.jpg`)).arrayBuffer());
+    assert.ok(jpeg.equals(beforePump), 'mirror remains pinned until the new frame is published');
+    timers.timers[0].fn();
+    const afterPump = Buffer.from(await (await fetch(`http://127.0.0.1:${loop.port}/frame.jpg`)).arrayBuffer());
+    assert.ok(!jpeg.equals(afterPump), 'mirror advances with the published frame');
+  } finally { await shutdown(); }
+});

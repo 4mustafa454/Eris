@@ -37,7 +37,7 @@ export const stateStyle = state => STATES[state] ?? UNKNOWN_STATE;
 
 export const GRID = { name: 44, badge: 32, task: 32, log: 28, logLines: 5, pad: 28, gap: 24, stripe: 8, margin: 40, taskLines: 1 };
 export const FOCUS = { name: 72, badge: 48, task: 44, reason: 44, log: 36, logLines: 10, pad: 48, stripe: 16, margin: 40, taskLines: 1, reasonLines: 2 };
-// Portrait: full-width stacked tiles with room for bigger text, and a narrow focus view that wraps instead of truncating.
+// Portrait: up to three full-width tiles, or a compact grid for larger teams.
 export const GRID_PORTRAIT = { name: 56, badge: 36, task: 36, log: 32, logLines: 5, pad: 32, gap: 24, stripe: 8, margin: 40, taskLines: 2 };
 export const FOCUS_PORTRAIT = { name: 88, badge: 56, task: 48, reason: 42, log: 38, logLines: 10, pad: 48, stripe: 16, margin: 40, taskLines: 3, reasonLines: 6 };
-export const MAX_TILES = 3;
+export const MAX_TILES = 6;

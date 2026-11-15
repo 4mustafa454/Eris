@@ -24,7 +24,7 @@ test('a tick fetches agents and logs and emits a grid model', async () => {
   assert.equal(m.agents.length, 3);
   assert.deepEqual(m.logs['agent-2'], ['log of agent-2']);
   assert.equal(m.lastSeen, 'T');
-  assert.deepEqual(calls.logs.map(c => c[1]), [10, 10, 10]);
+  assert.deepEqual(calls.logs.map(c => c[1]), [40, 40, 40]);
 });
 
 test('a throwing /agents gives an unreachable model, keeps the last data, and recovers', async () => {

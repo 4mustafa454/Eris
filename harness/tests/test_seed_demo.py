@@ -131,3 +131,15 @@ def test_a_relative_demo_repo_is_relative_to_harness_like_the_harness_reads_it(s
 def test_bad_arguments(sandbox):
     assert run(sandbox, "--wat").returncode == 2
     assert sandbox.db.exists()
+
+
+def test_with_approval_flag_creates_one_pending_approval_on_a_fresh_db(sandbox):
+    r = run(sandbox, "--yes", "--with-approval=agent-2")
+    assert r.returncode == 0, r.stderr
+    import sqlite3
+    rows = sqlite3.connect(sandbox.db).execute("SELECT agent_id, action, status FROM approvals").fetchall()
+    assert rows == [("agent-2", "git_push", "pending")]
+
+
+def test_unknown_flag_still_rejected(sandbox):
+    assert run(sandbox, "--bogus").returncode == 2

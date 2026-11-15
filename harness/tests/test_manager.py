@@ -108,7 +108,7 @@ def test_new_task_runs_streams_lines_and_finishes_done(world):
         assert s["state"] == "working" and s["task"].startswith("Run the tests and fix the failing one")
         await until(lambda: world.spawn.procs)
         argv = world.spawn.argvs[0]
-        assert "--resume" not in argv and argv[-2:] == ["--", "Run the tests and fix the failing one. Commit when green."]
+        assert "--resume" not in argv and argv[-2:] == ["--", docker.worker_prompt("Run the tests and fix the failing one. Commit when green.")]
         proc = world.spawn.procs[0]
         proc.say(*fixture("done_after_fix")[:5])  # up to the first pytest result and a read
         await until(lambda: "read shop/signup.py" in log())
@@ -295,7 +295,7 @@ def test_steering_a_stuck_agent_resumes_the_same_session_and_task(world):
         assert s["state"] == "working" and s["stuck_reason"] is None
         await until(lambda: len(world.spawn.procs) == 2)
         argv = world.spawn.argvs[1]
-        assert argv[argv.index("--resume") + 1] == SID and argv[-2:] == ["--", "Use the v2 endpoint"]
+        assert argv[argv.index("--resume") + 1] == SID and argv[-2:] == ["--", docker.worker_prompt("Use the v2 endpoint")]
         world.spawn.procs[1].say(*fixture("done_after_fix"))
         world.spawn.procs[1].end(0)
         await m.wait_idle("agent-1")
@@ -323,7 +323,7 @@ def test_steering_mid_run_interrupts_inside_the_container_then_resumes_and_ignor
         await until(lambda: len(world.spawn.procs) == 2)
         argv = world.spawn.argvs[1]
         assert argv[argv.index("--resume") + 1] == SID
-        assert argv[-1] == "Wait, also reject passwords shorter than 8 characters"
+        assert argv[-1] == docker.worker_prompt("Wait, also reject passwords shorter than 8 characters")
         await asyncio.sleep(0.05)
         a = state()
         assert a["state"] == "working", "the interrupted run's late result was ignored"
@@ -342,7 +342,7 @@ def test_two_task_requests_at_once_are_serialised_the_second_one_steers(world):
             world.manager.send_task("agent-1", "first instruction"),
             world.manager.send_task("agent-1", "second instruction"),
         )
-        await until(lambda: any(a[-1] == "second instruction" for a in world.spawn.argvs))
+        await until(lambda: any(a[-1] == docker.worker_prompt("second instruction") for a in world.spawn.argvs))
         for proc in world.spawn.procs:
             proc.end(0)
         await world.manager.wait_idle("agent-1")
@@ -419,7 +419,7 @@ def test_when_a_task_finishes_the_next_queued_one_starts_with_a_fresh_session(wo
         world.spawn.procs[0].end(0)
         await until(lambda: len(world.spawn.procs) == 2)
         argv = world.spawn.argvs[1]
-        assert "--resume" not in argv and argv[-1] == "Do the second thing"
+        assert "--resume" not in argv and argv[-1] == docker.worker_prompt("Do the second thing")
         assert state()["task"] == "Second" and state()["state"] == "working" and session() is None
         world.spawn.procs[1].say(*fixture("blocked"))
         world.spawn.procs[1].end(0)
@@ -583,4 +583,108 @@ def test_three_matching_test_failures_interrupt_the_worker(world):
         await until(lambda: state()["state"] == "stuck", timeout=3)
         assert "three consecutive" in state()["stuck_reason"]
         assert proc.rc == 130
+    arun(main())
+
+
+def test_pause_interrupts_real_run_and_resume_keeps_saved_session(world):
+    async def main():
+        m = world.manager
+        await m.send_task('agent-1', 'work')
+        await until(lambda: bool(world.spawn.procs))
+        world.spawn.procs[0].say(*fixture('done_after_fix')[:1])
+        await until(lambda: session() is not None)
+        thread = session()
+        before = task_rows()[0]['id']
+        assert (await m.pause('agent-1'))['state'] == 'paused'
+        assert world.spawn.procs[0].rc == 130
+        assert (await m.resume('agent-1'))['state'] == 'working'
+        await until(lambda: len(world.spawn.procs) == 2)
+        assert thread in world.spawn.argvs[-1] and '--resume' in world.spawn.argvs[-1]
+        assert task_rows()[0]['id'] == before
+        await m.stop_all()
+    arun(main())
+
+
+def test_resume_without_a_saved_real_session_is_refused(world):
+    from app.workers.manager import ResumeUnavailable
+    async def main():
+        m = world.manager
+        await m.send_task('agent-1', 'work')
+        await until(lambda: bool(world.spawn.procs))
+        await m.pause('agent-1')
+        with pytest.raises(ResumeUnavailable):
+            await m.resume('agent-1')
+        assert state()['state'] == 'paused' and len(world.spawn.procs) == 1
+    arun(main())
+
+
+def test_new_board_task_starts_real_worker_and_queues_busy_work(world):
+    async def main():
+        m = world.manager
+        first = await m.create_board_task('First', 'Do first', 'agent-1')
+        assert first['status'] == 'working'
+        await until(lambda: len(world.spawn.procs) == 1)
+        second = await m.create_board_task('Second', 'Do second', 'agent-1')
+        assert second['status'] == 'queued' and len(world.spawn.procs) == 1
+        assert state()['task'] == 'First'
+        await m.stop_all()
+    arun(main())
+
+
+@pytest.mark.parametrize('engine', ['claude-code', 'codex'])
+@pytest.mark.parametrize('decision', ['approved', 'denied'])
+def test_worker_approval_round_trip_uses_existing_route_and_same_task(world, monkeypatch, engine, decision):
+    from pathlib import Path
+    import httpx
+    from app.main import app
+    from app.routes.events import snapshots
+
+    m = world.manager
+    m.settings = Settings(real_workers=('agent-1',), engines={'agent-1': engine})
+    monkeypatch.setattr(app.state, 'manager', m, raising=False)
+    fixture_engine = 'claude' if engine == 'claude-code' else 'codex'
+    recorded = (Path(__file__).parent / 'fixtures' / fixture_engine / 'approval.jsonl').read_text().splitlines()
+
+    async def main():
+        await m.send_task('agent-1', 'Finish the change and request a push')
+        await until(lambda: bool(world.spawn.procs))
+        original_task = task_rows()[0]
+        await m.create_board_task('Next task', 'Do this later', 'agent-1')
+        proc = world.spawn.procs[0]
+        proc.say(*recorded)
+        proc.end(0)
+        await m.wait_idle('agent-1')
+        assert state()['state'] == 'stuck'
+        assert state()['stuck_reason'] == 'Awaiting approval: git_push'
+        assert task_rows()[0]['status'] == 'stuck'
+        assert task_rows()[1]['status'] == 'queued'
+        pending = rows('SELECT * FROM approvals')
+        assert len(pending) == 1 and pending[0]['status'] == 'pending'
+        assert pending[0]['action'] == 'git_push'
+        assert len([e for e in rows("SELECT * FROM events WHERE agent_id='agent-1'") if e['type'] == 'stuck']) == 1
+        assert snapshots()['approval'][0]['id'] == pending[0]['id']
+        saved_session = session()
+        assert saved_session
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            sid = (await client.post('/sessions', json={'channel': 'web'})).json()['id']
+            assert (await client.get('/context')).json()['pending_approvals'][0]['id'] == pending[0]['id']
+            response = await client.post('/approvals/' + pending[0]['id'], json={'decision': decision, 'session_id': sid})
+            assert response.status_code == 200 and response.json()['status'] == decision
+            assert (await client.get('/approvals?status=pending')).json() == []
+            assert (await client.post('/approvals/' + pending[0]['id'], json={'decision': decision})).status_code == 409
+            actions = (await client.get('/sessions/' + sid)).json()['actions']
+            assert len(actions) == 1 and actions[0]['tool'] == 'decide_approval'
+        await until(lambda: len(world.spawn.procs) == 2)
+        argv = world.spawn.argvs[-1]
+        assert saved_session in argv
+        assert ('--resume' if engine == 'claude-code' else 'resume') in argv
+        assert ('Approved: git_push' if decision == 'approved' else 'Denied: git_push') in argv[-1]
+        assert ('Go ahead and continue.' if decision == 'approved' else 'Do not do this') in argv[-1]
+        assert state()['state'] == 'working' and state()['stuck_reason'] is None
+        assert task_rows()[0]['id'] == original_task['id']
+        assert task_rows()[0]['instruction'] == original_task['instruction']
+        assert task_rows()[1]['status'] == 'queued'
+        assert len(world.spawn.procs) == 2
+        await m.shutdown()
+
     arun(main())

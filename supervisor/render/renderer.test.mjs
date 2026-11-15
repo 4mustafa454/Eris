@@ -241,3 +241,16 @@ test('safe-area samples: portrait frames are written for inspection', () => {
   r.render(grid('long'));
   writeFileSync(`${OUT}long-grid-portrait-safe.png`, r.png());
 });
+
+test('renders and saves portrait samples for one, three, and six agents with an approval', () => {
+  const renderer = createRenderer({ width: 1080, height: 1920, log: { warn() {} } });
+  for (const [name, model] of [
+    ['one', MODELS.one],
+    ['three', MODELS.three],
+    ['six-approval', { ...MODELS['six-states'], approvals: [{ id: 'ap1', agent_id: 'agent-2', action: 'git_push', status: 'pending' }] }],
+  ]) {
+    const frame = renderer.render({ ...model, mode: 'grid', harness: 'ok' });
+    assert.equal(frame.rgba.length, 1080 * 1920 * 4);
+    writeFileSync(`${OUT}portrait-${name}-grid.png`, renderer.png());
+  }
+});

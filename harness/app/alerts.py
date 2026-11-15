@@ -6,6 +6,21 @@ import time
 import httpx
 
 from . import db
+from .approvals import AWAITING
+
+MAX_LEN = 100
+
+
+def format_alert(name, reason):
+    """'Agent 2 needs approval: git push' / 'Agent 1 is stuck: v1 or v2 endpoint?' (<= MAX_LEN chars)."""
+    reason = ' '.join((reason or '').split())
+    if reason.startswith(AWAITING):
+        text = f"{name} needs approval: {reason[len(AWAITING):]}"
+    elif reason:
+        text = f"{name} is stuck: {reason}"
+    else:
+        text = f"{name} is stuck"
+    return text if len(text) <= MAX_LEN else text[:MAX_LEN - 1].rstrip() + '…'
 
 
 class StuckAlerts:
@@ -57,7 +72,8 @@ class StuckAlerts:
     async def poll(self):
         conn = db.connect()
         try:
-            rows = conn.execute("SELECT id, agent_id FROM events WHERE id > ? AND type = 'stuck' ORDER BY id", (self.cursor,)).fetchall()
+            rows = conn.execute("SELECT e.id, e.agent_id, e.line, a.name, a.state, a.stuck_reason FROM events e "
+                                "JOIN agents a ON a.id = e.agent_id WHERE e.id > ? AND e.type = 'stuck' ORDER BY e.id", (self.cursor,)).fetchall()
             for row in rows:
                 self.cursor = row['id']
                 key = 'ntfy.last.' + row['agent_id']
@@ -66,7 +82,8 @@ class StuckAlerts:
                 if previous and now - float(previous[0]) < 120:
                     continue
                 conn.execute('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(now)))
-                await self.dispatch(f"{row['agent_id']} needs help. Open Eris for details.")
+                reason = row['stuck_reason'] if row['state'] == 'stuck' and row['stuck_reason'] else row['line']
+                await self.dispatch(format_alert(row['name'], reason))
         finally:
             conn.close()
 
