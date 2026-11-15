@@ -79,8 +79,9 @@ Portrait keeps everything out of a **safe area**: the top 120 px, bottom 260 px 
 720p fallback scales them) stay empty. FaceTime draws its own controls over the top and bottom, and a tall phone screen
 (about 9:19.5) crops the sides of a 1080-wide picture. Change them with `VIDEO_SAFE_TOP`, `VIDEO_SAFE_BOTTOM` (0 to 600
 each, at most 900 together) and `VIDEO_SAFE_SIDE` (0 to 250). The stripes, badges, text and tile panels all stay inside.
-The three tiles share the safe height, so each shows 4 log lines instead of 5; text sizes do not change, and the narrower
-width only cuts or wraps lines earlier. Text also stays out of a 300×360 box in each right-hand corner of the safe area
+The three tiles share the safe height, so each shows 4 log lines instead of 5; text sizes do not change. A grid task title
+wraps onto a second line at the same size (ellipsis on the second if it is still too long), and a tile whose title takes two
+lines shows 3 log lines instead of 4. This is portrait only: landscape titles stay on one line. Text also stays out of a 300×360 box in each right-hand corner of the safe area
 (FaceTime's default side for the caller's self-view): rows that reach a corner are wrapped or cut earlier. Only the
 right-hand corners are protected; if the self-view is dragged to a left corner it can cover the start of a line.
 Landscape has no safe area. It redraws only when what is

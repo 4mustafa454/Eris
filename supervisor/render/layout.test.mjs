@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createCanvas } from '@napi-rs/canvas';
-import { LONG_REASON, LONG_LINE, MODELS, SIX_STATES, THREE, logsFor } from './fixtures.mjs';
+import { LONG_REASON, LONG_LINE, LONG_TITLE, MODELS, SIX_STATES, THREE, logsFor } from './fixtures.mjs';
 import { registerFonts } from './fonts.mjs';
 import { cornerZones, effectiveView, fitText, layout, layoutFocus, layoutGrid, layoutUnreachable, modelKey, rowWidth, safeOf, wrapText } from './layout.mjs';
 import { FONT_STACK, HEIGHT, LANDSCAPE, MIN_FOCUS_PX, MIN_GRID_PX, PORTRAIT, WIDTH } from './theme.mjs';
@@ -330,7 +330,8 @@ test('the safe area is configurable through the frame; zero insets give the marg
   assert.deepEqual([ps[0].x, ps[0].y, ps[0].w], [40, 40, 1000], 'the 40 px margin still applies');
   assert.ok(ps.at(-1).y + ps.at(-1).h <= 1880 && ps.at(-1).y + ps.at(-1).h >= 1878);
   assert.equal(texts(layoutGrid(grid(MODELS.three), measure, none)).filter(o => o.fontPx === 32).length, 5 * 3, 'taller tiles bring the 5th log line back');
-  assert.equal(texts(layoutGrid(grid(MODELS.three), measure, PORTRAIT)).filter(o => o.fontPx === 32).length, 4 * 3, 'the default safe area shows 4 per tile');
+  const perTile = ops => panels(ops).map(p => texts(ops).filter(o => o.fontPx === 32 && o.y >= p.y && o.y < p.y + p.h).length);
+  assert.deepEqual(perTile(layoutGrid(grid(MODELS.three), measure, PORTRAIT)), [3, 4, 4], 'the default safe area: 4 per tile, 3 where the title wraps (tile 1)');
 });
 
 test('the largest configurable safe area (450 + 450 top/bottom, 250 each side) still fits every state badge and all text', () => {
@@ -356,15 +357,68 @@ test('rows that touch a corner zone get less width; rows clear of it keep the fu
   assert.equal(rowWidth(LANDSCAPE, 150, 150, 36, full), full, 'landscape has no zones');
 });
 
-test('a long task in the first tile is cut earlier than the same task in the second (corner), both end in an ellipsis', () => {
+test('long grid titles: a first line cut earlier in the corner rows, a second line ending in an ellipsis, same size', () => {
   const long = 'Refactor the entire signup flow to validate every field and normalise email addresses';
-  const a = i => ({ ...THREE[i], task: long });
-  const m = { agents: [a(0), a(1), a(2)], logs: {} };
-  const tasks = texts(layoutGrid(grid(m), measure, PORTRAIT)).filter(o => o.fontPx === 36 && !o.bold && o.text.startsWith('Refactor'));
-  assert.equal(tasks.length, 3);
-  assert.ok(tasks[0].maxWidth < tasks[1].maxWidth, 'tile 1 sits in the top corner band');
-  assert.ok(tasks[2].maxWidth < tasks[1].maxWidth, 'tile 3 sits in the bottom corner band');
-  assert.ok(tasks.every(t => t.text.endsWith('…')));
+  const m = { agents: [0, 1, 2].map(i => ({ ...THREE[i], task: long })), logs: {} };
+  const ops = layoutGrid(grid(m), measure, PORTRAIT);
+  const task = texts(ops).filter(o => o.fontPx === 36 && !o.bold && o.x === 150);
+  const byTile = panels(ops).map(p => task.filter(o => o.y >= p.y && o.y < p.y + p.h));
+  assert.deepEqual(byTile.map(t => t.length), [2, 2, 2], 'two lines each, never three');
+  assert.ok(byTile[0][0].maxWidth < byTile[1][0].maxWidth, 'tile 1 sits in the top corner band');
+  assert.ok(byTile[2][0].maxWidth < byTile[1][0].maxWidth, 'tile 3 sits in the bottom corner band');
+  for (const [first, second] of byTile) {
+    assert.ok(second.y > first.y + 36, 'the second line is below the first');
+    assert.ok(!first.text.endsWith('…'), 'the first line is a whole-word break, not cut');
+  }
+  assert.ok(byTile[0][1].text.endsWith('…') && byTile[2][1].text.endsWith('…'), 'corner tiles: still too long, so the second line ends in an ellipsis');
+  assert.equal(`${byTile[1][0].text} ${byTile[1][1].text}`, long, 'the middle tile has the full width: the whole title fits on two lines, nothing cut');
+  // a title too long even for the full width is cut with an ellipsis on the second line
+  const hugeAgent = { ...THREE[1], task: LONG_TITLE };
+  const hugeLines = texts(layoutGrid(grid({ agents: [hugeAgent], logs: {} }), measure, PORTRAIT)).filter(o => o.fontPx === 36 && !o.bold && o.x === 150);
+  assert.equal(hugeLines.length, 2);
+  assert.ok(hugeLines[1].text.endsWith('…'));
+});
+
+test('a title that fits on one line stays on one line, as before; one that does not wraps at a word', () => {
+  const title = 'Add input validation to /signup'; // fits tile 2 (full width) but not the corner rows of tiles 1 and 3
+  const m = { agents: [0, 1, 2].map(i => ({ ...THREE[i], task: title })), logs: {} };
+  const ops = layoutGrid(grid(m), measure, PORTRAIT);
+  const task = texts(ops).filter(o => o.fontPx === 36 && !o.bold && o.x === 150);
+  const byTile = panels(ops).map(p => task.filter(o => o.y >= p.y && o.y < p.y + p.h).map(o => o.text));
+  assert.deepEqual(byTile[1], [title], 'tile 2: one line, untouched');
+  assert.deepEqual(byTile[0], ['Add input validation to', '/signup'], 'tile 1 (corner): wrapped at a word, nothing cut');
+  assert.deepEqual(byTile[2], ['Add input validation to', '/signup'], 'tile 3 (corner)');
+});
+
+test('grid title wrapping: 3 log lines where the title takes two lines, 4 where it takes one; sizes and bounds unchanged', () => {
+  const logs = Object.fromEntries(['agent-1', 'agent-2', 'agent-3'].map(id => [id, Array.from({ length: 10 }, (_, i) => `entry ${i}`)]));
+  const m = { agents: [{ ...THREE[0], task: 'Add input validation to /signup' }, { ...THREE[1], task: 'Write tests' }, { ...THREE[2], task: 'Rename the package' }], logs };
+  const ops = layoutGrid(grid(m), measure, PORTRAIT);
+  const perTile = panels(ops).map(p => texts(ops).filter(o => /^entry \d$/.test(o.text) && o.y >= p.y && o.y < p.y + p.h));
+  assert.deepEqual(perTile.map(t => t.length), [3, 4, 4]);
+  assert.deepEqual(perTile[0].map(o => o.text), ['entry 7', 'entry 8', 'entry 9'], 'the latest ones');
+  assert.ok(texts(ops).every(o => o.fontPx >= MIN_GRID_PX));
+  assertInsideSafe(ops, PORTRAIT, SAFE, 'wrapped');
+  assertOutOfCorners(ops, PORTRAIT, 'wrapped');
+});
+
+test('landscape grid titles stay on one line (wrapping is a portrait-only change)', () => {
+  const long = 'Refactor the entire signup flow to validate every field and normalise email addresses';
+  const m = { agents: THREE.map(a => ({ ...a, task: long })), logs: {} };
+  const titles = texts(layoutGrid(grid(m), measure, LANDSCAPE)).filter(o => o.fontPx === 32 && !o.bold);
+  assert.equal(titles.length, 3);
+  assert.ok(titles.every(o => o.text.endsWith('…')));
+});
+
+test('a tile with no room for any log line shows none, not all of them (the largest safe area, a wrapped title)', () => {
+  const big = { ...PORTRAIT, safe: { top: 450, bottom: 450, side: 250 } };
+  const logs = { 'agent-1': Array.from({ length: 10 }, (_, i) => `entry ${i}`) };
+  const m = { agents: [{ ...THREE[0], task: 'Refactor the entire signup flow to validate every field and normalise emails' }], logs };
+  const ops = layoutGrid(grid(m), measure, big);
+  assert.equal(texts(ops).filter(o => /^entry \d$/.test(o.text)).length, 0);
+  assertInsideSafe(ops, big, big.safe, 'no room');
+  const huge = { ...PORTRAIT, safe: { top: 600, bottom: 600, side: 250 } };
+  assertInsideSafe(layoutFocus(focus(m, 'agent-1'), measure, huge), huge, huge.safe, 'focus no room');
 });
 
 test('wrapText takes a width per line', () => {

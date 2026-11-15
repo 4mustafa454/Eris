@@ -11,6 +11,9 @@ import { COLORS, CORNER, CORNER_GAP, DEFAULT_SAFE, FOCUS, FOCUS_PORTRAIT, GRID, 
 
 const ELLIPSIS = '…';
 
+/** The last n items, and nothing for n <= 0 (slice(-0) would be the whole array). */
+const lastN = (items, n) => (n > 0 ? items.slice(-n) : []);
+
 /** Longest prefix of text that fits maxWidth, with an ellipsis when cut. Never overflows (empty if nothing fits). */
 export function fitText(text, maxWidth, fontPx, measure, bold = false) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -148,12 +151,19 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
     const b = badge(measure, a.state, tx, cy, T.badge);
     ops.push(...b.ops);
     cy += b.h + 20;
-    ops.push(text(a.task ?? 'No task', cy, T.task, a.task ? COLORS.text : COLORS.dim));
-    cy += Math.round(T.task * 1.5) + 12;
+    // The title wraps onto up to T.taskLines lines at the same size (portrait: 2, ellipsis on the last if it is still
+    // too long). Each row is checked against the corner zones separately, so only the rows that reach one are narrower.
+    const taskY = cy;
+    const taskStep = Math.round(T.task * 1.3);
+    const taskLines = a.task
+      ? wrapText(a.task, i => rowWidth(frame, tx, taskY + i * taskStep, T.task, inner), T.task, T.taskLines, measure)
+      : ['No task'];
+    taskLines.forEach((line, i) => ops.push(textOp(measure, line, tx, taskY + i * taskStep, T.task, a.task ? COLORS.text : COLORS.dim, rowWidth(frame, tx, taskY + i * taskStep, T.task, inner))));
+    cy += (taskLines.length - 1) * taskStep + Math.round(T.task * 1.5) + 12; // one line: the same spacing as before
     const lh = Math.round(T.log * 1.45);
-    // As many of the latest log lines as fit in the tile: a short (safe-area) tile drops a line.
+    // As many of the latest log lines as fit in the tile: a wrapped title leaves room for 3 instead of 4.
     const room = Math.max(0, Math.floor((y + tileH - T.pad - cy) / lh));
-    const lines = (model.logs?.[a.id] ?? []).slice(-Math.min(T.logLines, room));
+    const lines = lastN(model.logs?.[a.id] ?? [], Math.min(T.logLines, room));
     for (const line of lines) {
       ops.push(text(line, cy, T.log, COLORS.dim));
       cy += lh;
@@ -208,7 +218,7 @@ export function layoutFocus(model, measure, frame = LANDSCAPE) {
   }
   const lh = Math.round(T.log * 1.4);
   const room = Math.max(0, Math.floor((limit - y) / lh));
-  const lines = (model.logs?.[a.id] ?? []).slice(-Math.min(T.logLines, room));
+  const lines = lastN(model.logs?.[a.id] ?? [], Math.min(T.logLines, room));
   for (const line of lines) {
     ops.push(textOp(measure, line, x, y, T.log, COLORS.dim, rowWidth(frame, x, y, T.log, inner)));
     y += lh;
