@@ -5,7 +5,8 @@ Rehearse this end to end before the real run. The call must stay **under 5 minut
 
 ## 1. Startup order
 
-Always in this order. Each command is in its own terminal. Node 24 for the supervisor (not 26).
+Always in this order. **Each command gets its own terminal, and `chert dev` must run in a terminal of its own**: never in the
+supervisor's terminal (Ctrl+C there would stop both), and stop it only with a single Ctrl+C, waiting for `dev_stopped`. Node 24 for the supervisor (not 26).
 
 ```sh
 # Terminal 1: harness  (http://localhost:8787)
@@ -26,8 +27,6 @@ Notes that differ from what you might expect:
 - The supervisor has **no `npm run dev`**; the command is `npm start` (it loads `.env.local`).
 - The `:8788` frame mirror exists only while a call is running, or while `npm run frames` runs. Only one process can
   hold the port, so **stop `npm run frames` before the real call** or the supervisor runs without the mirror.
-- The dashboard lives on branch `m5-dashboard` (`dashboard/` is empty on `m6-backend`). Check that branch out or merge
-  it before this step; its dev script is `vite` on `:5173`.
 - After any supervisor code change restart **both** the supervisor and `chert dev`. Stop `chert dev` with Ctrl+C once
   and wait for `dev_stopped`; never kill -9 it.
 
@@ -42,7 +41,7 @@ Rehearsal in Agent Console and the real demo differ in these places only.
 | `TTS_PROVIDER` | `deepgram` | `elevenlabs` |
 | `ELEVENLABS_VOICE_ID` | empty | the chosen voice id |
 | `ELEVENLABS_API_KEY` | optional | required (shared credit pool for STT and TTS) |
-| `GREET_ON_JOIN` | `1` | **remove the line / leave empty.** Chert's `bridge_ready` signal triggers the greeting; leaving it on also does nothing for `chert-bridge-*` callers, but keep it off so the setup is the same as the real line |
+| `GREET_ON_JOIN` | `1` | **off for real calls: remove the line or leave it empty.** Chert's `bridge_ready` signal triggers the greeting. It is only a fallback for Agent Console, which never sends that signal; it is ignored for `chert-bridge-*` callers, but keep it off so rehearsal matches the real line |
 | `LIVEKIT_URL` / `_API_KEY` / `_API_SECRET` | your LiveKit project | empty on a Shared plan with Chert rooms (`chert dev` hands out a token) |
 | `AGENT_NAME` | `eris` | `eris` |
 
@@ -204,4 +203,4 @@ hang up cleanly: a call that ends without a summary still has its transcript.
 **ElevenLabs out of credit or down.** Set `TTS_PROVIDER=deepgram`, restart the supervisor and `chert dev`.
 
 **Everything else failed.** Show the dashboard (Live, Conversations, Tasks) against a freshly seeded harness and talk through the script.
-A recorded backup video is still to be made (M7); it is not in the repo yet.
+There is no recorded backup video in the repo; record one from a good rehearsal if you want one.
