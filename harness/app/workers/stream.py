@@ -234,7 +234,7 @@ class StreamParser:
     def _final(self, event: dict, out: Update) -> None:
         text = event.get("result") if isinstance(event.get("result"), str) else ""
         subtype = str(event.get("subtype") or "")
-        if subtype == "error_max_turns":
+        if subtype == "error_max_turns" or event.get("terminal_reason") == "max_turns":
             result = Result("max_turns", text, "ran out of turns")
         elif event.get("is_error") or subtype.startswith("error"):
             why = _cut(_clean(text) or subtype or "the run failed", MAX_REASON)

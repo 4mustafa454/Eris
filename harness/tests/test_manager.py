@@ -192,6 +192,23 @@ def test_a_crash_without_a_result_is_an_error_with_the_exit_code_and_a_redacted_
     assert "[redacted]" in a["stuck_reason"]
 
 
+def test_a_real_captured_run_replays_to_an_error_state_with_claudes_message(world):
+    """The auth-failure stream captured from the real container (Claude Code 2.1.316), token redacted."""
+    async def main():
+        await world.manager.send_task("agent-1", "Run the tests and fix the failing one")
+        await until(lambda: world.spawn.procs)
+        world.spawn.procs[0].say(*fixture("auth_error_real"))
+        world.spawn.procs[0].end(1)
+        await world.manager.wait_idle("agent-1")
+
+    arun(main())
+    a = state()
+    assert a["state"] == "error" and a["stuck_reason"] == "Failed to authenticate. API Error: 401 Invalid bearer token"
+    assert session() == "a7475922-8c91-4ae9-8c07-1e942c308ea7"
+    assert log()[-1] == "error: Failed to authenticate. API Error: 401 Invalid bearer token"
+    assert task_rows()[0]["status"] == "stuck", "the task stays steerable"
+
+
 def test_docker_trouble_is_an_error_state_not_a_hang(world):
     async def main():
         world.manager._containers["agent-1"] = FakeContainer(

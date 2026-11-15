@@ -280,3 +280,23 @@ def test_finish_redacts_what_it_returns():
     p = StreamParser([SECRET])
     assert SECRET not in p.finish(1).reason
     assert p.redact(f"a {SECRET} b {SECRET}") == "a [redacted] b [redacted]" and p.redact("") == ""
+
+
+# --- a REAL stream (captured from Claude Code 2.1.316 in the worker container; an auth failure, token redacted) --------
+
+REAL_SID = "a7475922-8c91-4ae9-8c07-1e942c308ea7"
+
+
+def test_the_real_auth_failure_stream_is_an_error_with_claudes_own_message():
+    p, updates, lines = run("auth_error_real")
+    assert lines == [], "init, api_retry and the synthetic assistant message produce no event lines"
+    assert p.session_id == REAL_SID and updates[0].session_id == REAL_SID  # the real system/init
+    assert all(u.alive for u in updates), "every line, including system/api_retry, is a valid event (the worker is alive)"
+    r = p.finish(1)
+    # the real result event says subtype "success" but is_error true: is_error wins
+    assert r.kind == "error" and r.reason == "Failed to authenticate. API Error: 401 Invalid bearer token"
+
+
+def test_the_terminal_reason_also_marks_running_out_of_turns():
+    line = event("result", subtype="success", is_error=True, terminal_reason="max_turns", result="")
+    assert StreamParser().feed(line).result == Result("max_turns", "", "ran out of turns")
