@@ -110,12 +110,17 @@ function approvalBanner(model, measure, frame, x, y, width) {
   const name = model.agents?.find(a => a.id === pending.agent_id)?.name ?? pending.agent_id?.replace(/^agent-/, 'Agent ') ?? 'An agent';
   const action = String(pending.action ?? 'action').replace(/_/g, ' ');
   const pad = 16;
-  const font = 28;
+  const font = isPortrait(frame) ? 32 : 28;
   const available = (lineY) => rowWidth(frame, x + pad, lineY, font, width - 2 * pad);
-  return { height: 92, ops: [
-    { type: 'rect', x, y, w: width, h: 92, fill: COLORS.warn, radius: 12 },
-    textOp(measure, `Approval: ${name} · ${action}`, x + pad, y + 12, font, COLORS.warnText, available(y + 12), true),
-    textOp(measure, 'Say approve or deny', x + pad, y + 50, font, COLORS.warnText, available(y + 50), true),
+  const step = Math.round(font * 1.25);
+  const titleLines = wrapText(`Approval: ${name} · ${action}`, i => available(y + 12 + i * step), font, 2, measure, true);
+  const promptY = y + 12 + titleLines.length * step;
+  const promptLines = wrapText('Say approve or deny', i => available(promptY + i * step), font, 2, measure, true);
+  const height = 24 + (titleLines.length + promptLines.length) * step;
+  return { height, ops: [
+    { type: 'rect', x, y, w: width, h: height, fill: COLORS.warn, radius: 12 },
+    ...titleLines.map((line, i) => textOp(measure, line, x + pad, y + 12 + i * step, font, COLORS.warnText, available(y + 12 + i * step), true)),
+    ...promptLines.map((line, i) => textOp(measure, line, x + pad, promptY + i * step, font, COLORS.warnText, available(promptY + i * step), true)),
   ] };
 }
 
@@ -138,11 +143,12 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
   const safe = safeOf(frame);
   // Everything, panels included, stays inside the margins and (portrait) the safe area.
   let top = Math.max(base.margin, safe.top);
-  let bottom = frame.height - Math.max(base.margin, safe.bottom);
+  const bottom = frame.height - Math.max(base.margin, safe.bottom);
   const left = Math.max(base.margin, safe.side); // landscape: safe.side is 0, so this is the plain margin
   const agents = (model.agents ?? []).slice(0, MAX_TILES);
   const compact = agents.length > 3;
-  let T = compact ? { ...base, name: 38, badge: 28, task: 28, log: 28, pad: 16, taskLines: 1 } : base;
+  const densePortrait = portrait && agents.length >= 3;
+  const T = compact ? { ...base, name: 32, badge: 28, task: 28, log: 28, pad: 12, taskLines: 1 } : base;
   const ops = [background(COLORS.bg, frame)];
   const banner = approvalBanner(model, measure, frame, left, top, frame.width - 2 * left);
   ops.push(...banner.ops);
@@ -153,29 +159,22 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
     return ops;
   }
   const n = agents.length;
-  let columns = portrait ? (n > 3 ? 2 : 1) : Math.min(n, 3);
-  let rows = Math.ceil(n / columns);
-  let denseFallback = false;
-  // Dense portrait grids sit between the caller's two possible self-view corners.
-  if (portrait && compact) {
-    const cornerTop = Math.max(top, safe.top + CORNER.height + CORNER_GAP);
-    const cornerBottom = Math.min(bottom, frame.height - safe.bottom - CORNER.height - CORNER_GAP);
-    if (cornerBottom - cornerTop - T.gap * (rows - 1) >= rows * 190) {
-      top = cornerTop;
-      bottom = cornerBottom;
-    } else {
-      // With unusually large safe margins, use a compact single column instead of squeezing three rows into corners.
-      columns = 1;
-      rows = n;
-      denseFallback = true;
-      T = { ...T, name: 28, pad: 8, gap: 8 };
-    }
-  }
+  const columns = portrait ? (n > 3 ? 2 : 1) : Math.min(n, 3);
+  const rows = Math.ceil(n / columns);
   const tileW = Math.floor((frame.width - 2 * left - T.gap * (columns - 1)) / columns);
-  const tileH = Math.floor((bottom - top - T.gap * (rows - 1)) / rows);
+  const usable = bottom - top - T.gap * (rows - 1);
+  let heights = Array.from({ length: rows }, (_, i) => Math.floor(usable * (i + 1) / rows) - Math.floor(usable * i / rows));
+  if (portrait && compact && rows === 3) {
+    const upperEnd = Math.max(top + heights[0], safe.top + CORNER.height + 220);
+    const lowerStart = Math.min(bottom - heights[2], bottom - CORNER.height - 220);
+    const middle = lowerStart - upperEnd - 2 * T.gap;
+    if (middle >= 200) heights = [upperEnd - top, middle, bottom - lowerStart];
+  }
   agents.forEach((a, i) => {
     const x = left + (i % columns) * (tileW + T.gap);
-    const y = top + Math.floor(i / columns) * (tileH + T.gap);
+    const row = Math.floor(i / columns);
+    const y = top + heights.slice(0, row).reduce((sum, height) => sum + height + T.gap, 0);
+    const tileH = heights[row];
     const inner = tileW - T.stripe - 2 * T.pad;
     const tx = x + T.stripe + T.pad;
     const text = (t, ty, px, fill, bold = false) => textOp(measure, t, tx, ty, px, fill, rowWidth(frame, tx, ty, px, inner), bold);
@@ -183,11 +182,23 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
     ops.push({ type: 'rect', x, y, w: tileW, h: tileH, fill: waiting ? '#574421' : COLORS.panel, radius: 16 });
     ops.push({ type: 'rect', x, y, w: T.stripe, h: tileH, fill: a.color || COLORS.dim });
     let cy = y + T.pad;
-    ops.push(text(a.name, cy, T.name, COLORS.text, true));
-    cy += Math.round(T.name * (denseFallback ? 1.1 : 1.3));
-    const b = badge(measure, a.state, tx, cy, T.badge);
-    ops.push(...b.ops);
-    cy += b.h + (denseFallback ? 4 : 20);
+    let contentBottom = y + tileH - T.pad;
+    if (portrait && columns > 1 && x + tileW > frame.width - safe.side - CORNER.width) {
+      if (y < safe.top + CORNER.height) cy = Math.max(cy, safe.top + CORNER.height);
+      if (y + tileH > bottom - CORNER.height) contentBottom = Math.min(contentBottom, bottom - CORNER.height);
+    }
+    const b = badge(measure, a.state, 0, cy, T.badge);
+    if (densePortrait) {
+      const headerWidth = rowWidth(frame, tx, cy, T.name, inner);
+      ops.push(textOp(measure, a.name, tx, cy + Math.max(0, (b.h - T.name) / 2), T.name, COLORS.text, Math.max(0, headerWidth - b.w - 8), true));
+      ops.push(...badge(measure, a.state, tx + Math.max(0, headerWidth - b.w), cy, T.badge).ops);
+      cy += Math.max(T.name, b.h) + 8;
+    } else {
+      ops.push(text(a.name, cy, T.name, COLORS.text, true));
+      cy += Math.round(T.name * 1.3);
+      ops.push(...badge(measure, a.state, tx, cy, T.badge).ops);
+      cy += b.h + 20;
+    }
     // The title wraps onto up to T.taskLines lines at the same size (portrait: 2, ellipsis on the last if it is still
     // too long). Each row is checked against the corner zones separately, so only the rows that reach one are narrower.
     const taskY = cy;
@@ -196,11 +207,23 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
       ? wrapText(a.task, i => rowWidth(frame, tx, taskY + i * taskStep, T.task, inner), T.task, T.taskLines, measure)
       : ['No task'];
     taskLines.forEach((line, i) => ops.push(textOp(measure, line, tx, taskY + i * taskStep, T.task, a.task ? COLORS.text : COLORS.dim, rowWidth(frame, tx, taskY + i * taskStep, T.task, inner))));
-    cy += (taskLines.length - 1) * taskStep + Math.round(T.task * (denseFallback ? 1.15 : 1.5)) + (denseFallback ? 4 : 12);
-    const lh = Math.round(T.log * 1.45);
+    cy += (taskLines.length - 1) * taskStep + Math.round(T.task * (densePortrait ? 1.15 : 1.5)) + (densePortrait ? 6 : 12);
+    if (a.state === 'stuck') {
+      const px = densePortrait ? 28 : Math.max(28, T.task);
+      const pad = densePortrait ? 8 : 12;
+      const step = Math.round(px * 1.2);
+      const boxY = cy;
+      const lines = wrapText(`BLOCKED: ${a.stuck_reason || 'Reason unavailable'}`, i => rowWidth(frame, tx + pad, boxY + pad + i * step, px, inner - 2 * pad), px, 2, measure, true);
+      const boxH = Math.max(1, lines.length) * step + 2 * pad;
+      ops.push({ type: 'rect', x: tx, y: boxY, w: inner, h: boxH, fill: COLORS.warn, radius: 12 });
+      lines.forEach((line, i) => ops.push(textOp(measure, line, tx + pad, boxY + pad + i * step, px, COLORS.warnText,
+        rowWidth(frame, tx + pad, boxY + pad + i * step, px, inner - 2 * pad), true)));
+      cy += boxH + (densePortrait ? 8 : 16);
+    }
+    const lh = Math.round(T.log * (densePortrait ? 1.2 : 1.45));
     // As many of the latest log lines as fit in the tile: a wrapped title leaves room for 3 instead of 4.
-    const room = Math.max(0, Math.floor((y + tileH - T.pad - cy) / lh));
-    const lines = lastN(model.logs?.[a.id] ?? [], Math.min(T.logLines, room));
+    const room = Math.max(0, Math.floor((contentBottom - cy) / lh));
+    const lines = n === 6 && portrait && a.state === 'stuck' ? [] : lastN(model.logs?.[a.id] ?? [], room);
     for (const line of lines) {
       ops.push(text(line, cy, T.log, COLORS.dim));
       cy += lh;
@@ -293,7 +316,7 @@ export function modelKey(model) {
   if (view === 'unreachable') return JSON.stringify({ view, url: model.harnessUrl ?? null, lastSeen: model.lastSeen ?? null });
   const agents = (model.agents ?? []).map(a => ({ id: a.id, name: a.name, color: a.color, state: a.state, task: a.task ?? null, reason: a.state === 'stuck' ? a.stuck_reason ?? null : null }));
   const shown = view === 'focus' ? agents.filter(a => a.id === model.focusId) : agents.slice(0, MAX_TILES);
-  const logs = Object.fromEntries(shown.map(a => [a.id, (model.logs?.[a.id] ?? []).slice(-FOCUS.logLines)]));
+  const logs = Object.fromEntries(shown.map(a => [a.id, (model.logs?.[a.id] ?? []).slice(-(view === 'focus' ? FOCUS.logLines : 40))]));
   const approvals = (model.approvals ?? []).filter(a => a.status === 'pending').map(a => ({ id: a.id, agent_id: a.agent_id, action: a.action, status: a.status }));
   return JSON.stringify({ view, focusId: view === 'focus' ? model.focusId : null, agents: shown, logs, approvals });
 }

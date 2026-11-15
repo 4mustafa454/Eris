@@ -9,7 +9,7 @@ const clock = () => new Date().toISOString().slice(11, 19) + 'Z';
  *           harnessUrl?: string, intervalMs?: number, logLines?: number,
  *           onModel: (model: object) => void, now?: () => string }} options
  */
-export function createPoller({ harness, harnessUrl, intervalMs = 500, logLines = 10, onModel, now = clock }) {
+export function createPoller({ harness, harnessUrl, intervalMs = 500, logLines = 40, onModel, now = clock }) {
   let mode = 'grid';
   let focusId = null;
   let agents = [];

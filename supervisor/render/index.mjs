@@ -10,7 +10,7 @@ import { startApprovalEvents } from './approvals.mjs';
  *           width?: number, height?: number, safe?: { top: number, bottom: number }, serve?: boolean, log?: Pick<Console,'warn'|'info'> }} options
  *   port: frame.jpg port (default 8788; 0 = any free port). serve:false skips the HTTP server.
  */
-export async function startRenderLoop({ harness, harnessUrl, port = 8788, intervalMs = 500, logLines = 10, width, height, safe, serve = true, log = console }) {
+export async function startRenderLoop({ harness, harnessUrl, port = 8788, intervalMs = 500, logLines = 40, width, height, safe, serve = true, log = console }) {
   const renderer = createRenderer({ width, height, safe, log });
   const poller = createPoller({ harness, harnessUrl, intervalMs, logLines, onModel: model => renderer.render(model) });
   const approvals = harnessUrl ? startApprovalEvents({ harnessUrl, harness, onApprovals: a => poller.setApprovals(a) }) : null;
