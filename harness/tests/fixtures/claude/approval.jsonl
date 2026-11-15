@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"approval-claude-session"}
+{"type":"assistant","session_id":"approval-claude-session","message":{"content":[{"type":"text","text":"The changes are committed locally.\nAPPROVAL: git_push"}]}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"approval-claude-session","result":"The changes are committed locally.\nAPPROVAL: git_push"}

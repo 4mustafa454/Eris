@@ -359,3 +359,57 @@ def test_codex_stream_ignores_unknown_events_and_handles_failure():
     assert not parser.feed("not json").alive
     assert parser.feed(json.dumps({"type": "future"})).alive
     assert parser.feed(json.dumps({"type": "turn.failed"})).result.kind == "error"
+
+
+@pytest.mark.parametrize('engine', ['claude', 'codex'])
+@pytest.mark.parametrize('action', ['git_push', 'delete /tmp/old-cache', 'pip install requests'])
+def test_approval_fixture_is_a_terminal_request_not_a_success(engine, action):
+    from app.workers.stream import CodexStreamParser
+    parser = CodexStreamParser() if engine == 'codex' else StreamParser()
+    path = FIXTURES.parent / engine / 'approval.jsonl'
+    updates = [parser.feed(line.replace('git_push', action)) for line in path.read_text().splitlines()]
+    assert all(u.result is None for u in updates[:-1])
+    assert updates[-1].result.kind == 'approval'
+    assert parser.finish(0).reason == action
+    assert parser.session_id
+
+
+@pytest.mark.parametrize('text,kind,reason', [
+    ('APPROVAL:   git_push  ', 'approval', 'git_push'),
+    ('APPROVAL: first\nAPPROVAL: second', 'approval', 'second'),
+    ('BLOCKED: waiting\nAPPROVAL: git_push', 'approval', 'git_push'),
+    ('APPROVAL:', 'blocked', 'approval requested without an action'),
+    ('Done. APPROVAL: git_push', 'done', None),
+    ('approval: git_push', 'done', None),
+])
+@pytest.mark.parametrize('engine', ['claude', 'codex'])
+def test_approval_marker_rules(engine, text, kind, reason):
+    from app.workers.stream import CodexStreamParser
+    if engine == 'codex':
+        parser = CodexStreamParser()
+        parser.feed(event('item.completed', item={'type': 'agent_message', 'text': text}))
+        result = parser.feed(event('turn.completed')).result
+    else:
+        result = StreamParser().feed(final(text)).result
+    assert (result.kind, result.reason) == (kind, reason)
+
+
+@pytest.mark.parametrize('engine', ['claude', 'codex'])
+def test_approval_action_is_redacted(engine):
+    from app.workers.stream import CodexStreamParser
+    parser = CodexStreamParser([SECRET]) if engine == 'codex' else StreamParser([SECRET])
+    path = FIXTURES.parent / engine / 'approval.jsonl'
+    for line in path.read_text().splitlines():
+        parser.feed(line.replace('git_push', 'install ' + SECRET))
+    assert parser.finish(0).reason == 'install [redacted]'
+
+
+def test_approval_in_tool_output_is_not_a_request():
+    p = StreamParser()
+    p.feed(asst(use('read', 'Read', file_path='/workspace/notes.txt')))
+    p.feed(result_event('read', 'APPROVAL: git_push'))
+    assert p.feed(final('Read the notes.')).result.kind == 'done'
+    from app.workers.stream import CodexStreamParser
+    p = CodexStreamParser()
+    p.feed(event('item.completed', item={'type': 'command_execution', 'aggregated_output': 'APPROVAL: git_push'}))
+    assert p.feed(event('turn.completed')).result.kind == 'done'

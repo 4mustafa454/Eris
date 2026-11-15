@@ -23,10 +23,10 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 @dataclass
 class Result:
-    """How a run ended. kind: done | blocked | max_turns | error."""
+    """How a run ended. kind: done | blocked | approval | max_turns | error."""
     kind: str
-    text: str = ""            # the final message (done/blocked), or what went wrong
-    reason: str | None = None  # blocked: the question; max_turns/error: why
+    text: str = ""            # the final message, or what went wrong
+    reason: str | None = None  # blocked: question; approval: action; max_turns/error: why
     summary: str | None = None  # done: a one-sentence summary for AgentState.summary
 
 
@@ -114,6 +114,21 @@ def _blocked_reason(text: str) -> str | None:
     if found is None:
         return None
     return _cut(found, MAX_REASON) or "blocked (no question given)"
+
+
+def _reply_result(text: str) -> Result:
+    """Only assistant replies can request approval; tool output is never an approval signal."""
+    action = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("APPROVAL:"):
+            action = _cut(_clean(line[len("APPROVAL:"):]), MAX_REASON)
+    if action is not None:
+        return (Result("approval", text, action) if action else
+                Result("blocked", text, "approval requested without an action"))
+    if (reason := _blocked_reason(text)) is not None:
+        return Result("blocked", text, reason)
+    return Result("done", text, summary=first_sentence(text) if text.strip() else None)
 
 
 class StreamParser:
@@ -256,10 +271,8 @@ class StreamParser:
         elif event.get("is_error") or subtype.startswith("error"):
             why = _cut(_clean(text) or subtype or "the run failed", MAX_REASON)
             result = Result("error", text or why, why)
-        elif (question := _blocked_reason(text)) is not None:
-            result = Result("blocked", text, question)
         else:
-            result = Result("done", text, None, first_sentence(text) if text.strip() else None)
+            result = _reply_result(text)
         out.result = self.result = result
 
 
@@ -299,9 +312,7 @@ class CodexStreamParser(StreamParser):
             elif typ == "file_change":
                 out.lines.append("edit files")
         elif kind == "turn.completed":
-            reason = _blocked_reason(self._final_text)
-            self.result = (Result("blocked", self._final_text, reason) if reason is not None else
-                           Result("done", self._final_text, summary=first_sentence(self._final_text) if self._final_text.strip() else None))
+            self.result = _reply_result(self._final_text)
             out.result = self.result
         elif kind == "turn.failed":
             self.result = Result("error", reason="Codex turn failed")

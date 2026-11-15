@@ -75,7 +75,7 @@ def test_codex_start_and_resume_pass_model_reasoning_and_sandbox():
         assert pairs(argv, "--model") == ["gpt-6.1-terra"]
         assert pairs(argv, "--config") == ['model_reasoning_effort="medium"']
         assert pairs(argv, "--sandbox") == ["danger-full-access"]
-        assert argv[-2:] == ["--", "--literal prompt"]
+        assert argv[-2:] == ["--", d.worker_prompt("--literal prompt")]
         if sid:
             assert argv.index("--sandbox") < argv.index("resume") and argv[-3] == sid
 
@@ -92,7 +92,7 @@ def test_exec_argv_has_the_claude_flags_and_the_token_by_name_only():
     assert "--verbose" in argv and "--dangerously-skip-permissions" in argv
     assert argv[argv.index("--max-turns") + 1] == "30"
     assert "--resume" not in argv
-    assert argv[-2:] == ["--", "Fix the failing test"]
+    assert argv[-2:] == ["--", d.worker_prompt("Fix the failing test")]
     assert TOKEN not in " ".join(argv)
 
 
@@ -105,7 +105,7 @@ def test_exec_argv_uses_the_api_key_name_when_that_is_what_is_set():
 def test_resume_is_added_only_when_steering():
     argv = d.exec_argv("agent-1", SETTINGS, "use v2", resume="8c1f6a52-3b7e")
     assert argv[argv.index("--resume") + 1] == "8c1f6a52-3b7e"
-    assert argv.index("--resume") < argv.index("--") and argv[-1] == "use v2"
+    assert argv.index("--resume") < argv.index("--") and argv[-1] == d.worker_prompt("use v2")
 
 
 @pytest.mark.parametrize("instruction", [
@@ -114,7 +114,7 @@ def test_resume_is_added_only_when_steering():
 ])
 def test_the_instruction_is_always_one_argv_element_after_the_double_dash(instruction):
     argv = d.exec_argv("agent-1", SETTINGS, instruction, resume="sid")
-    assert argv[-2:] == ["--", instruction]
+    assert argv[-2:] == ["--", d.worker_prompt(instruction)]
     assert argv.count("--") == 1 and len(argv) == len(d.exec_argv("agent-1", SETTINGS, "x", resume="sid"))
 
 
@@ -353,3 +353,13 @@ def test_the_real_runner_reports_a_missing_docker_binary_clearly(monkeypatch):
     monkeypatch.setattr(asyncio, "create_subprocess_exec", boom)
     with pytest.raises(WorkerError, match="docker is not installed"):
         asyncio.run(d.Runner().run(["docker", "ps"]))
+
+
+@pytest.mark.parametrize('engine', ['claude-code', 'codex'])
+@pytest.mark.parametrize('resume', [None, 'saved-session'])
+def test_both_workers_receive_approval_instructions_on_start_and_resume(engine, resume):
+    settings = Settings(engines={'agent-1': engine})
+    prompt = d.exec_argv('agent-1', settings, 'Do the task', resume)[-1]
+    assert 'APPROVAL: <action>' in prompt and 'stop without performing it' in prompt
+    assert all(action in prompt for action in ('git push', 'deleting files outside the repo', 'installing dependencies'))
+    assert prompt.endswith('\nDo the task')
