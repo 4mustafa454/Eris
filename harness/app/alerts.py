@@ -1,12 +1,14 @@
 """Debounced ntfy notifications for committed stuck events."""
 import asyncio
 import logging
+import os
 import time
 
 import httpx
 
 from . import db
 from .approvals import AWAITING
+from .chert import ChertClient, mask_number, _why
 
 MAX_LEN = 100
 
@@ -24,13 +26,16 @@ def format_alert(name, reason):
 
 
 class StuckAlerts:
-    def __init__(self, topic, *, channels=('ntfy',), mode='text', sender=None, clock=time.time):
+    def __init__(self, topic, *, channels=('ntfy',), mode='text', sender=None, clock=time.time,
+                 dry_run=None, chert=None):
         self.topic = topic
         self.channels = channels
         self.mode = mode
         self.sender = sender or self._send
         self.clock = clock
         self.cursor = 0
+        self._dry_run = dry_run  # None: follow ALERT_DRY_RUN in the environment
+        self.chert = chert or ChertClient(os.environ)
 
     async def _send(self, message):
         if not self.topic:
@@ -39,11 +44,17 @@ class StuckAlerts:
             response = await client.post(f'https://ntfy.sh/{self.topic}', content=message.encode('utf-8'))
             response.raise_for_status()
 
+    @property
+    def dry_run(self):
+        if self._dry_run is not None:
+            return self._dry_run
+        return os.environ.get('ALERT_DRY_RUN', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
     async def _imessage(self, message):
-        logging.getLogger(__name__).warning('iMessage alert channel is not implemented')
+        await self.chert.send_imessage(message)
 
     async def _facetime_call(self, message):
-        logging.getLogger(__name__).warning('FaceTime call alert channel is not implemented')
+        await self.chert.place_call(message)
 
     async def dispatch(self, message, *, mode=None):
         mode = mode or self.mode
@@ -53,11 +64,14 @@ class StuckAlerts:
                       else (text_channels, call_channels)):
             for channel in self.channels:
                 send = group.get(channel)
-                if send:
+                if send and self.dry_run:
+                    to = mask_number(os.environ.get('ALERT_TO')) if channel != 'ntfy' else 'ntfy topic'
+                    logging.getLogger(__name__).warning('[dry-run] %s to %s would send: %s', channel, to, message)
+                elif send:
                     try:
                         await send(message)
-                    except Exception:
-                        logging.getLogger(__name__).warning('Alert delivery failed for %s', channel)
+                    except Exception as error:
+                        logging.getLogger(__name__).warning('Alert delivery failed for %s (%s)', channel, _why(error))
 
     async def send_recap(self, summary):
         await self.dispatch(f"Call recap: {summary}", mode='text')

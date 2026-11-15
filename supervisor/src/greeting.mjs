@@ -22,6 +22,20 @@ const sentence = clause => (/[.?!]$/.test(clause) ? clause : `${clause}.`);
 const approvalWords = action => (action === 'git_push' ? 'push' : String(action).replace(/_/g, ' '));
 
 /**
+ * The reason an alert call was placed (harness sets `alert_reason` in the room metadata), or '' for an ordinary call.
+ * @param {string | undefined} metadata
+ */
+export function alertReason(metadata) {
+  try {
+    const reason = JSON.parse(metadata || '{}')?.alert_reason;
+    return typeof reason === 'string' ? reason.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  } catch { return ''; }
+}
+
+/** Alert calls lead with the reason; the PM tools take it from there. No LLM call, nothing to wait on. */
+export const buildAlertGreeting = reason => `${PREFIX} ${sentence(reason)} Want me to pull it up?`;
+
+/**
  * @param {object | null | undefined} context a GET /context response; null/undefined → fallback text
  * @returns {string} one or two spoken sentences: stuck agents and approvals first, then work in progress
  */

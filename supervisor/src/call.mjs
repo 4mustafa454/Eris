@@ -2,7 +2,7 @@
 // Everything outside the framework is injected, so call.test.mjs drives the whole flow with fakes.
 import { AutoSubscribe, voice as livekitVoice } from '@livekit/agents';
 import { buildTurnHandling } from './config.mjs';
-import { armGreeting, resolveGreeting } from './greeting.mjs';
+import { alertReason, armGreeting, buildAlertGreeting, resolveGreeting } from './greeting.mjs';
 import { createSessionLogger } from './harness.mjs';
 import { renderPrompt } from './pm-prompt.mjs';
 import { buildTools } from './tools.mjs';
@@ -101,6 +101,9 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, s
     callerIdentity: caller.identity,
     greetOnJoin: config.greetOnJoin,
     greet: async () => {
+      // An outbound alert call (placed by the harness) says why it called first.
+      const reason = alertReason(ctx.room.metadata);
+      if (reason) { agentSession.say(buildAlertGreeting(reason)); return; }
       const text = await resolveGreeting({ fetchContext: () => harness.getContext(), cached: context });
       agentSession.say(text);
     },

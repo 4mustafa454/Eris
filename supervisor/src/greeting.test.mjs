@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { armGreeting, buildGreeting, FALLBACK_GREETING, isBridgeCaller, resolveGreeting } from './greeting.mjs';
+import { alertReason, armGreeting, buildAlertGreeting, buildGreeting, FALLBACK_GREETING, isBridgeCaller, resolveGreeting } from './greeting.mjs';
 
 const agent = (n, over = {}) => ({
   id: `agent-${n}`, name: `Agent ${n}`, engine: 'claude-code', state: 'working', task: `Task ${n}`,
@@ -230,4 +230,12 @@ test('recap shortening never cuts a long word', () => {
   ] });
   const text = buildGreeting(context);
   assert.ok(text.includes(longWord));
+});
+
+test('alert calls lead the greeting with the reason', () => {
+  const meta = JSON.stringify({ alert_reason: 'Agent 1 is stuck: v1 or v2 endpoint?', chert_bridge_ready: true });
+  assert.equal(alertReason(meta), 'Agent 1 is stuck: v1 or v2 endpoint?');
+  assert.equal(buildAlertGreeting(alertReason(meta)), "Hi, it's Eris. Agent 1 is stuck: v1 or v2 endpoint? Want me to pull it up?");
+  assert.equal(buildAlertGreeting('Agent 2 needs approval: git push'), "Hi, it's Eris. Agent 2 needs approval: git push. Want me to pull it up?");
+  for (const none of [undefined, '', 'not json', '{}', '{"alert_reason":5}']) assert.equal(alertReason(none), '');
 });
