@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from .. import sessions
 from ..deps import get_conn
 from ..models import (
+    Action,
+    ActionCreate,
     Channel,
     Message,
     MessageCreate,
@@ -51,3 +53,15 @@ def patch_session(session_id: str, body: SessionPatch, conn: sqlite3.Connection 
 @router.post("/sessions/{session_id}/messages", response_model=Message)
 def add_message(session_id: str, body: MessageCreate, conn: sqlite3.Connection = Depends(get_conn)):
     return _or_404(sessions.add_message(conn, session_id, body.role, body.text), session_id)
+
+
+@router.post("/sessions/{session_id}/actions", response_model=Action)
+def add_action(session_id: str, body: ActionCreate, conn: sqlite3.Connection = Depends(get_conn)):
+    """Read-only/display tools only (§5.3); mutating tools are logged by their own route."""
+    try:
+        action = sessions.add_action(
+            conn, session_id, body.tool, body.args, body.result, body.agent_id
+        )
+    except LookupError:
+        raise HTTPException(422, f"unknown agent: {body.agent_id}")
+    return _or_404(action, session_id)

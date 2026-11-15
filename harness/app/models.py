@@ -68,6 +68,17 @@ class Action(BaseModel):
     created_at: str
 
 
+# §5.3 logging rule: the caller logs only these; mutating tools are logged by the harness route.
+ReadOnlyTool = Literal["get_status", "explain_agent", "show_grid", "focus_agent", "search_history"]
+
+
+class ActionCreate(BaseModel):  # POST /sessions/{id}/actions
+    tool: ReadOnlyTool
+    args: dict
+    result: dict | None = None
+    agent_id: str | None = None
+
+
 class SessionDetail(Session):
     messages: list[Message]
     actions: list[Action]

@@ -1,4 +1,5 @@
 """Session repository: sessions, messages, actions (shared by routes, /context, later /chat)."""
+import json
 import sqlite3
 import uuid
 
@@ -62,6 +63,36 @@ def add_message(conn: sqlite3.Connection, session_id: str, role: str, text: str)
         (session_id, role, text, db.utcnow()),
     )
     return dict(conn.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+
+def add_action(
+    conn: sqlite3.Connection,
+    session_id: str,
+    tool: str,
+    args: dict,
+    result: dict | None,
+    agent_id: str | None,
+) -> dict | None:
+    """Log one tool call. None if the session does not exist; raises LookupError for an unknown agent."""
+    if get_session(conn, session_id) is None:
+        return None
+    if agent_id is not None and conn.execute(
+        "SELECT 1 FROM agents WHERE id = ?", (agent_id,)
+    ).fetchone() is None:
+        raise LookupError(agent_id)
+    cur = conn.execute(
+        "INSERT INTO actions (session_id, agent_id, tool, args_json, result_json, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            session_id,
+            agent_id,
+            tool,
+            json.dumps(args),
+            None if result is None else json.dumps(result),
+            db.utcnow(),
+        ),
+    )
+    return dict(conn.execute("SELECT * FROM actions WHERE id = ?", (cur.lastrowid,)).fetchone())
 
 
 def recent_summaries(conn: sqlite3.Connection, limit: int = 5) -> list[dict]:
