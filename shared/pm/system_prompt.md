@@ -6,7 +6,8 @@ TEMPLATE FORMAT (read by BOTH the harness /chat and the Node supervisor; keep th
    (Node: text.replace(/^\s*<!--[\s\S]*?--\x3E\s*/, "")  where \x3E is the greater-than sign, written
    as an escape so this header never contains the closing marker before its real end.)
 2. Placeholders are plain double-brace names with NO spaces inside the braces. They are replaced by
-   literal string replacement (Node: text.replaceAll("{{name}}", value)). No escaping, no
+   literal string replacement (Node: text.replaceAll("{{name}}", () => value); use a function so
+   $ characters in the value stay literal). No escaping, no
    conditionals, no loops, no nesting.
 3. Placeholders in use:
      {{what_happened_last_time}}  one line per recent session summary, "- [channel, ended_at] summary",
