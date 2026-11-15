@@ -7,7 +7,8 @@ import os
 import random
 import sqlite3
 
-from .. import agents, db
+from .. import agents, db, tasks
+from ..tasks import complete_task, start_next_queued  # noqa: F401  (re-exported: the mock API the tests use)
 
 SEED = [
     {
@@ -35,8 +36,6 @@ SEED = [
         "lines": ["grep old package name", "edit 14 files", "run pytest → 12 passed", "git commit"],
     },
 ]
-
-_TASK_STATUS = {"working": "working", "stuck": "stuck", "done": "done"}
 
 _WORK_LINES = [
     "read config.py", "edit routes.py", "run pytest → 1 failed", "run pytest → all passed",
@@ -94,59 +93,7 @@ def seed_agents(conn: sqlite3.Connection) -> None:
         raise
 
 
-_LIVE = "('working', 'stuck')"
 _OPEN = "('queued', 'working', 'stuck')"
-
-
-def _has_live_task(conn: sqlite3.Connection, agent_id: str) -> bool:
-    return conn.execute(
-        f"SELECT 1 FROM tasks WHERE agent_id = ? AND status IN {_LIVE}", (agent_id,)
-    ).fetchone() is not None
-
-
-def start_next_queued(conn: sqlite3.Connection, agent_id: str, now: str) -> tuple[str, str] | None:
-    """Start the agent's oldest queued task (created_at, then insertion order).
-
-    Never overwrites work: does nothing while the agent still has a working or stuck task.
-    Returns (task_id, title) or None.
-    """
-    if _has_live_task(conn, agent_id):
-        return None
-    row = conn.execute(
-        "SELECT id, title FROM tasks WHERE agent_id = ? AND status = 'queued'"
-        " ORDER BY created_at, rowid LIMIT 1",
-        (agent_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    conn.execute("UPDATE tasks SET status = 'working', updated_at = ? WHERE id = ?", (now, row["id"]))
-    conn.execute(
-        "UPDATE agents SET task_id = ?, state = 'working', summary = ?, stuck_reason = NULL,"
-        " updated_at = ? WHERE id = ?",
-        (row["id"], f"Starting: {row['title']}", now, agent_id),
-    )
-    agents.add_event(conn, agent_id, "state_changed", f"start task: {row['title']}")
-    return row["id"], row["title"]
-
-
-def complete_task(conn: sqlite3.Connection, agent_id: str, now: str) -> tuple[str, str] | None:
-    """The agent's current task reaches done; then its next queued task starts automatically.
-
-    Returns the (task_id, title) that started, or None if the queue was empty.
-    """
-    agent = conn.execute("SELECT task_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    if agent["task_id"]:
-        conn.execute(
-            f"UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ? AND status IN {_LIVE}",
-            (now, agent["task_id"]),
-        )
-    conn.execute(
-        "UPDATE agents SET state = 'done', summary = ?, stuck_reason = NULL, updated_at = ?"
-        " WHERE id = ?",
-        ("Finished the task; tests pass", now, agent_id),
-    )
-    agents.add_event(conn, agent_id, "done", "run pytest → all passed")
-    return start_next_queued(conn, agent_id, now)
 
 
 def enqueue_task(conn: sqlite3.Connection, agent_id: str, rng, now: str) -> tuple[str, str, str] | None:
@@ -155,9 +102,7 @@ def enqueue_task(conn: sqlite3.Connection, agent_id: str, rng, now: str) -> tupl
     Skips titles that are already open on any agent and respects MAX_QUEUED_PER_AGENT.
     Returns (task_id, title, status) or None if nothing could be created.
     """
-    agent = conn.execute("SELECT state FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    busy = agent["state"] not in ("idle", "done") or _has_live_task(conn, agent_id)
-    if busy:
+    if tasks.is_busy(conn, agent_id):
         queued = conn.execute(
             "SELECT COUNT(*) FROM tasks WHERE agent_id = ? AND status = 'queued'", (agent_id,)
         ).fetchone()[0]
@@ -169,21 +114,7 @@ def enqueue_task(conn: sqlite3.Connection, agent_id: str, rng, now: str) -> tupl
         return None
     title, instruction = rng.choice(choices)
     task_id = f"task-{rng.getrandbits(32):08x}"
-    status = "queued" if busy else "working"
-    conn.execute(
-        "INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (task_id, agent_id, title, instruction, status, now, now),
-    )
-    if busy:
-        agents.add_event(conn, agent_id, "line", f"queued task: {title}")
-    else:
-        conn.execute(
-            "UPDATE agents SET task_id = ?, state = 'working', summary = ?, stuck_reason = NULL,"
-            " updated_at = ? WHERE id = ?",
-            (task_id, f"Starting: {title}", now, agent_id),
-        )
-        agents.add_event(conn, agent_id, "state_changed", f"start task: {title}")
+    status = tasks.add_task(conn, agent_id, title, instruction, now, task_id)
     return task_id, title, status
 
 
@@ -209,7 +140,7 @@ def _tick(conn: sqlite3.Connection, rng) -> str:
         roll = rng.random()
         if roll < 0.2:
             reason = rng.choice(_STUCK_REASONS)
-            _set_state(conn, agent, "stuck", f"Blocked: {reason}", reason, now)
+            tasks.set_state(conn, aid, "stuck", f"Blocked: {reason}", reason, now)
             agents.add_event(conn, aid, "stuck", f"BLOCKED: {reason}")
         elif roll < 0.4:
             complete_task(conn, aid, now)
@@ -218,7 +149,7 @@ def _tick(conn: sqlite3.Connection, rng) -> str:
             conn.execute("UPDATE agents SET summary = ?, updated_at = ? WHERE id = ?", (line, now, aid))
             agents.add_event(conn, aid, "line", line)
     elif state == "stuck":  # steered: same task, stuck → working
-        _set_state(conn, agent, "working", "Resumed after guidance", None, now)
+        tasks.set_state(conn, aid, "working", "Resumed after guidance", None, now)
         agents.add_event(conn, aid, "state_changed", "resumed after guidance")
     elif state in ("idle", "done"):
         if start_next_queued(conn, aid, now) is None and rng.random() < IDLE_NEW_TASK_CHANCE:
@@ -227,19 +158,6 @@ def _tick(conn: sqlite3.Connection, rng) -> str:
     if rng.random() < QUEUE_CHANCE:
         enqueue_task(conn, aid, rng, now)
     return aid
-
-
-def _set_state(conn, agent, state, summary, stuck_reason, now) -> None:
-    """Working/stuck transitions on the agent's current task (task_id never changes here)."""
-    conn.execute(
-        "UPDATE agents SET state = ?, summary = ?, stuck_reason = ?, updated_at = ? WHERE id = ?",
-        (state, summary, stuck_reason, now, agent["id"]),
-    )
-    if agent["task_id"]:
-        conn.execute(
-            "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-            (_TASK_STATUS[state], now, agent["task_id"]),
-        )
 
 
 def ticker_enabled() -> bool:
