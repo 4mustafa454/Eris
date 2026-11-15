@@ -166,16 +166,16 @@ test('transcript: both sides logged in order with roles mapped; non-messages and
   ]);
 });
 
-test('hangup sets ended_at once, after the last message, and closes the session', async () => {
+test('hangup saves ended_at and a summary once, after the last message', async () => {
   const { ctx, session, harness } = await start();
   session.item('user', 'bye');
   session.emit('close'); // closeOnDisconnect: the caller hung up
   await ctx.runShutdown();
   await ctx.runShutdown(); // a second shutdown must not end it again
   const kinds = harness.calls.map(c => c[0]);
-  assert.equal(kinds.filter(k => k === 'end').length, 1);
+  assert.equal(kinds.filter(k => k === 'end').length, 2);
   assert.ok(kinds.lastIndexOf('message') < kinds.indexOf('end'));
-  assert.deepEqual(harness.calls.find(c => c[0] === 'end'), ['end', 'sess-1', ['ended_at']]);
+  assert.deepEqual(harness.calls.filter(c => c[0] === 'end'), [['end', 'sess-1', ['ended_at']], ['end', 'sess-1', ['summary']]]);
   assert.ok(session.closed >= 1);
 });
 
@@ -305,5 +305,5 @@ test('a video that fails to stop cannot break shutdown', async () => {
   const video = { ...fakeVideo(), stop: async () => { throw new Error('room gone'); } };
   const { ctx, harness } = await startWithVideo({ startVideo: async () => video });
   await ctx.runShutdown();
-  assert.deepEqual(harness.calls.filter(c => c[0] === 'end').length, 1, 'the session was still marked ended');
+  assert.equal(harness.calls.filter(c => c[0] === 'end').length, 2, 'the session was ended and summarized');
 });

@@ -67,3 +67,20 @@ def test_alert_delivery_failure_does_not_escape(db_file):
         conn.close()
         await alerts.poll()
     asyncio.run(check())
+
+
+def test_facetime_recap_sent_once_after_summary_and_end(db_file):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    received = []
+    class Alerts:
+        async def send_recap(self, text):
+            received.append(text)
+    with TestClient(app) as client:
+        app.state.alerts = Alerts()
+        sid = client.post('/sessions', json={'channel': 'facetime'}).json()['id']
+        assert client.patch(f'/sessions/{sid}', json={'ended_at': '2026-11-15T00:00:00Z'}).status_code == 200
+        assert not received
+        assert client.patch(f'/sessions/{sid}', json={'summary': 'Agent 1 continued. Work remains.'}).status_code == 200
+        assert client.patch(f'/sessions/{sid}', json={'summary': 'Agent 1 continued. Work remains.'}).status_code == 200
+        assert received == ['Agent 1 continued. Work remains.']

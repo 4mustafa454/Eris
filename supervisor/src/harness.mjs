@@ -49,6 +49,7 @@ export function createHarness({ baseUrl, fetchImpl = fetch, timeoutMs = 3000 }) 
       request('POST', `/agents/${encodeURIComponent(id)}/task`, { instruction, ...(sessionId ? { session_id: sessionId } : {}) }, SLOW_MS),
     stopAll: () => request('POST', '/stop-all', undefined, SLOW_MS),
     createSession: channel => request('POST', '/sessions', { channel }),
+    getSession: id => request('GET', `/sessions/${encodeURIComponent(id)}`),
     patchSession: (id, fields) => request('PATCH', `/sessions/${encodeURIComponent(id)}`, fields),
     postMessage: (id, role, text) => request('POST', `/sessions/${encodeURIComponent(id)}/messages`, { role, text }),
     postAction: (id, { tool, args, result = null, agent_id }) =>
@@ -72,16 +73,29 @@ export const utcNow = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
  */
 export function createSessionLogger(harness, sessionId, onError = () => {}) {
   let chain = Promise.resolve();
+  const transcript = [];
+  const actions = [];
   const enqueue = work => {
     if (!sessionId) return;
     chain = chain.then(work).catch(error => { try { onError(error); } catch { /* logging must not throw */ } });
   };
   return {
     sessionId,
-    message: (role, text) => enqueue(() => harness.postMessage(sessionId, role, text)),
-    action: action => enqueue(() => harness.postAction(sessionId, action)),
+    message: (role, text) => { transcript.push({ role, text }); enqueue(() => harness.postMessage(sessionId, role, text)); },
+    action: action => { actions.push(action); enqueue(() => harness.postAction(sessionId, action)); },
     /** Marks the session ended (hangup). Summaries are M4; this only sets ended_at. */
     end: () => enqueue(() => harness.patchSession(sessionId, { ended_at: utcNow() })),
+    summarize: summarize => enqueue(async () => {
+      let recordedActions = [...actions];
+      try {
+        if (harness.getSession) {
+          const detail = await harness.getSession(sessionId);
+          recordedActions = (detail.actions ?? []).map(a => ({ tool: a.tool, args: JSON.parse(a.args_json ?? '{}') }));
+        }
+      } catch { /* use locally recorded actions when the harness is unavailable */ }
+      const summary = await summarize([...transcript], recordedActions);
+      if (summary) await harness.patchSession(sessionId, { summary });
+    }),
     /** Resolves when everything queued so far has been sent, or after timeoutMs, whichever is first. */
     flush: (timeoutMs = 5000) => {
       const wait = new Promise(resolve => setTimeout(resolve, timeoutMs).unref());

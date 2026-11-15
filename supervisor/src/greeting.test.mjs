@@ -173,3 +173,14 @@ test('a greet that throws or rejects is reported, not propagated, and is not ret
   assert.equal(rejected, 1);
   assert.equal(b.errors.length, 1);
 });
+
+test('greets with the most recent stored FaceTime summary and current state', () => {
+  const context = ctx([agent(1, 'working')], { recent_summaries: [
+    { channel: 'web', summary: 'Web discussion.' },
+    { channel: 'facetime', summary: 'Agent 3 renamed the package. Tests passed.' },
+  ] });
+  const greeting = buildGreeting(context);
+  assert.match(greeting, /Last call: Agent 3 renamed the package\./);
+  assert.match(greeting, /Agent 1/);
+  assert.doesNotMatch(greeting, /Web discussion/);
+});

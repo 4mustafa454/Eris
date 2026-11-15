@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     finally:
         conn.close()
     alerts = StuckAlerts(settings.ntfy_topic) if settings.ntfy_topic else None
+    app.state.alerts = alerts
     if alerts:
         alerts.start_at_current()
     await manager.recover()

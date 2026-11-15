@@ -6,6 +6,7 @@ import { armGreeting, resolveGreeting } from './greeting.mjs';
 import { createSessionLogger } from './harness.mjs';
 import { renderPrompt } from './pm-prompt.mjs';
 import { buildTools } from './tools.mjs';
+import { summarizeCall } from './summary.mjs';
 
 // Roles in the transcript (§4): the framework says "assistant", the harness says "pm".
 const TRANSCRIPT_ROLE = { user: 'user', assistant: 'pm' };
@@ -62,7 +63,13 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, s
   agentSession.on('error', event => log.error(`[eris] session error: ${event?.error?.message ?? 'unknown'}`));
 
   let ended = false;
-  const markEnded = () => { if (!ended) { ended = true; logger.end(); } };
+  const markEnded = () => {
+    if (!ended) {
+      ended = true;
+      logger.end();
+      logger.summarize((transcript, actions) => summarizeCall(providers.llm, transcript, actions));
+    }
+  };
   agentSession.on('close', markEnded); // the caller hung up
 
   await agentSession.start({
@@ -98,6 +105,6 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, s
     try { await agentSession.close(); } catch { /* already closed */ }
     try { await video?.stop(); } catch { /* the room is already gone */ }
     markEnded();
-    await logger.flush();
+    await logger.flush(15000);
   });
 }

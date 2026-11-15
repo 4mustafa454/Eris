@@ -49,7 +49,9 @@ export function buildGreeting(context) {
     attention.push(`${who} wants to ${approvalWords(ap.action)} and needs your approval`);
   }
 
-  const clauses = [...attention, ...working, ...finished, ...paused];
+  const lastCall = (context.recent_summaries ?? []).find(s => s.channel === 'facetime' && s.summary?.trim());
+  const recap = lastCall ? [`Last call: ${shorten(lastCall.summary.trim().split(/(?<=[.!?])\s+/)[0], 120)}`] : [];
+  const clauses = [...recap, ...attention, ...working, ...finished, ...paused];
   if (!clauses.length) return `${PREFIX} ${agents.length ? 'All agents are idle.' : 'No agents are running.'}`;
   const shown = clauses.slice(0, MAX_CLAUSES).map(sentence).join(' ');
   return `${PREFIX} ${shown}${clauses.length > MAX_CLAUSES ? ' Ask me for the rest.' : ''}`;

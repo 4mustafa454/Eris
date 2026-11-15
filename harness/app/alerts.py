@@ -19,6 +19,12 @@ class StuckAlerts:
             response = await client.post(f'https://ntfy.sh/{self.topic}', content=message.encode('utf-8'))
             response.raise_for_status()
 
+    async def send_recap(self, summary):
+        try:
+            await self.sender(f"Call recap: {summary}")
+        except Exception:
+            pass
+
     def start_at_current(self):
         conn = db.connect()
         try:

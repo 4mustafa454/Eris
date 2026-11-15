@@ -1,6 +1,6 @@
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from .. import sessions
 from ..deps import get_conn
@@ -45,9 +45,16 @@ def get_session(session_id: str, conn: sqlite3.Connection = Depends(get_conn)):
 
 
 @router.patch("/sessions/{session_id}", response_model=Session)
-def patch_session(session_id: str, body: SessionPatch, conn: sqlite3.Connection = Depends(get_conn)):
+def patch_session(session_id: str, body: SessionPatch, request: Request, background_tasks: BackgroundTasks,
+                  conn: sqlite3.Connection = Depends(get_conn)):
     fields = body.model_dump(exclude_unset=True)
-    return _or_404(sessions.patch_session(conn, session_id, fields), session_id)
+    previous = _or_404(sessions.get_session(conn, session_id), session_id)
+    updated = _or_404(sessions.patch_session(conn, session_id, fields), session_id)
+    alerts = getattr(request.app.state, 'alerts', None)
+    if (alerts and updated['channel'] == 'facetime' and updated['ended_at'] and updated['summary']
+            and not (previous['ended_at'] and previous['summary'])):
+        background_tasks.add_task(alerts.send_recap, updated['summary'])
+    return updated
 
 
 @router.post("/sessions/{session_id}/messages", response_model=Message)
