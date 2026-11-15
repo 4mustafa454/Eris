@@ -1,10 +1,10 @@
 # Eris
 
-**Mission control for your team of coding agents — watch them work and talk to them face to face over FaceTime.**
+**FaceTime your team of AI coding agents: watch them work live, steer them by voice, and get a call when one gets stuck.**
 
 Built for HackUTA 2026 (Chert track).
 
-> **About the demo.** Eris is a working proof of concept, and the agents in it are real: set `REAL_WORKERS=agent-1,agent-3` and
+> **About the demo: test scenario, real system.** Eris is a working proof of concept, and the agents in it are real: set `REAL_WORKERS=agent-1,agent-3` and
 > Claude Code and Codex run in sandboxed Docker containers against a real repo. Their `BLOCKED:` and `APPROVAL:` signals drive the
 > same stuck and approval states you see on the call, and we exercised that path end to end during development (real Claude Code
 > and Codex tasks, stuck detection, voice steering and call recaps). Real agents take minutes to reach a given state, so for a timed recording we drove the grid
@@ -24,15 +24,30 @@ video, text, or the web dashboard. On a FaceTime call, the PM's outgoing video i
 ## What it does
 
 - **Call in on FaceTime Video.** The PM greets you with a recap of the last call and what needs attention, then you see a live
-  grid of three worker agents (state, task, latest activity). "Show me agent 2" switches to a full-screen view of that agent.
+  grid of your worker agents (1–6 tiles: state, task, latest activity). "Show me agent 2" switches to a full-screen view of that agent.
 - **Talk to the team.** Ask for status, tell an agent what to do ("tell agent 1 to use the v2 endpoint"), pause or resume an agent,
   create tasks, search past conversations, and stop everything with one phrase.
-- **Get alerted when a worker is stuck.** The harness texts you (ntfy, and iMessage with a picture of the grid) and can call
-  you on FaceTime; the call opens with the reason.
-- **Approve risky actions by voice.** A worker that wants to `git push` stops and asks; nothing is pushed until you say yes.
+- **Get alerted when a worker is stuck.** The harness pushes an alert to your phone (ntfy, working today), and is built to
+  escalate over Chert: an iMessage with a picture of the grid, then a FaceTime call that opens with the reason (see Status).
+- **Approve risky actions by voice.** A worker that wants to `git push` (or delete files, or install dependencies) stops and asks;
+  you approve or deny by voice or on the dashboard, and the agent continues or changes course. In the demo setup the workers'
+  repos have no remote, so an approval releases the agent rather than performing a real push.
 - **Continue anywhere.** Every call and chat is saved with transcript, actions and a summary. The PM remembers recent calls, and the
   dashboard can resume any conversation in a chat panel that uses the same PM brain.
 - **Dashboard** (Live, Conversations, Tasks with approvals, Settings with provider tests), served on `localhost:5173`.
+
+## Status
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | FaceTime call in, live agent grid as video, voice Q&A | Verified in LiveKit Agent Console; connects to a Chert FaceTime line via `chert dev` |
+| ✅ | Voice steering, pause/resume, stop all, task queueing | Real Claude Code and Codex workers in Docker |
+| ✅ | Stuck detection (`BLOCKED:`, stalls, repeated failures) + ntfy alerts | Verified with real workers |
+| ✅ | Approvals by voice and on the dashboard, with banner on the video | Real workers signal `APPROVAL:`; demo uses a seeded approval |
+| ✅ | Call summaries and "since we last talked" recap on the next call | Verified across calls |
+| ✅ | Dashboard: Live, Conversations (search, continue), Tasks, Approvals, Settings | Vite + React, live over SSE |
+| 🧪 | Alerts over Chert: iMessage with a grid screenshot, outbound FaceTime call | Built and unit-tested; not yet run against a live line |
+| 🔜 | Focus mode with an agent's real screen, agent-to-agent handoff, hosted setup | Planned |
 
 ## Architecture
 
