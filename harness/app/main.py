@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
         mock.seed_agents(conn, real=settings.real_workers)
     finally:
         conn.close()
-    alerts = StuckAlerts(settings.ntfy_topic) if settings.ntfy_topic else None
+    alerts = StuckAlerts(settings.ntfy_topic, channels=settings.alert_channels, mode=settings.alert_mode)
     app.state.alerts = alerts
     if alerts:
         alerts.start_at_current()

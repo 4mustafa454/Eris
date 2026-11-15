@@ -17,7 +17,7 @@ DEFAULT_IMAGE = "eris-claude-code:2.1.316"
 DEFAULT_MAX_TURNS = 30
 SECRET_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 # Every variable this module reads, for harness/.env.example (a test keeps the two in step).
-ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "NTFY_TOPIC", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
+ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "NTFY_TOPIC", "ALERT_CHANNELS", "ALERT_MODE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
 
 
 class ConfigError(Exception):
@@ -38,6 +38,8 @@ class Settings:
     codex_model: str = "gpt-6.1-terra"
     codex_reasoning: str = "medium"
     ntfy_topic: str | None = None
+    alert_channels: tuple[str, ...] = ("ntfy",)
+    alert_mode: str = "text"
 
     def engine_for(self, agent_id: str) -> str:
         return self.engines.get(agent_id, "claude-code")
@@ -149,6 +151,12 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     ntfy_topic = _get(env, "NTFY_TOPIC")
     if ntfy_topic and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", ntfy_topic):
         problems.append("NTFY_TOPIC must contain only letters, digits, underscores or hyphens")
+    channels = tuple(c.strip() for c in (_get(env, "ALERT_CHANNELS") or "ntfy").split(","))
+    if any(c not in ("ntfy", "imessage", "facetime_call") for c in channels) or len(set(channels)) != len(channels):
+        problems.append("ALERT_CHANNELS must list unique channels: ntfy, imessage, facetime_call")
+    alert_mode = _get(env, "ALERT_MODE") or "text"
+    if alert_mode not in ("text", "call", "text_then_call"):
+        problems.append("ALERT_MODE must be text, call or text_then_call")
 
     turns = DEFAULT_MAX_TURNS
     raw_turns = _get(env, "CLAUDE_MAX_TURNS")
@@ -171,7 +179,7 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
     return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log, codex_image,
-                    {a: known_agents[a] for a in real}, codex_model, codex_reasoning, ntfy_topic)
+                    {a: known_agents[a] for a in real}, codex_model, codex_reasoning, ntfy_topic, channels, alert_mode)
 
 
 def main() -> int:

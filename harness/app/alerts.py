@@ -1,5 +1,6 @@
 """Debounced ntfy notifications for committed stuck events."""
 import asyncio
+import logging
 import time
 
 import httpx
@@ -8,22 +9,43 @@ from . import db
 
 
 class StuckAlerts:
-    def __init__(self, topic, *, sender=None, clock=time.time):
+    def __init__(self, topic, *, channels=('ntfy',), mode='text', sender=None, clock=time.time):
         self.topic = topic
+        self.channels = channels
+        self.mode = mode
         self.sender = sender or self._send
         self.clock = clock
         self.cursor = 0
 
     async def _send(self, message):
+        if not self.topic:
+            return
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.post(f'https://ntfy.sh/{self.topic}', content=message.encode('utf-8'))
             response.raise_for_status()
 
+    async def _imessage(self, message):
+        logging.getLogger(__name__).warning('iMessage alert channel is not implemented')
+
+    async def _facetime_call(self, message):
+        logging.getLogger(__name__).warning('FaceTime call alert channel is not implemented')
+
+    async def dispatch(self, message, *, mode=None):
+        mode = mode or self.mode
+        text_channels = {'ntfy': self.sender, 'imessage': self._imessage}
+        call_channels = {'facetime_call': self._facetime_call}
+        for group in ((text_channels,) if mode == 'text' else (call_channels,) if mode == 'call'
+                      else (text_channels, call_channels)):
+            for channel in self.channels:
+                send = group.get(channel)
+                if send:
+                    try:
+                        await send(message)
+                    except Exception:
+                        logging.getLogger(__name__).warning('Alert delivery failed for %s', channel)
+
     async def send_recap(self, summary):
-        try:
-            await self.sender(f"Call recap: {summary}")
-        except Exception:
-            pass
+        await self.dispatch(f"Call recap: {summary}", mode='text')
 
     def start_at_current(self):
         conn = db.connect()
@@ -44,10 +66,7 @@ class StuckAlerts:
                 if previous and now - float(previous[0]) < 120:
                     continue
                 conn.execute('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(now)))
-                try:
-                    await self.sender(f"{row['agent_id']} needs help. Open Eris for details.")
-                except Exception:
-                    pass  # an alert outage must not affect worker control
+                await self.dispatch(f"{row['agent_id']} needs help. Open Eris for details.")
         finally:
             conn.close()
 

@@ -84,3 +84,30 @@ def test_facetime_recap_sent_once_after_summary_and_end(db_file):
         assert client.patch(f'/sessions/{sid}', json={'summary': 'Agent 1 continued. Work remains.'}).status_code == 200
         assert client.patch(f'/sessions/{sid}', json={'summary': 'Agent 1 continued. Work remains.'}).status_code == 200
         assert received == ['Agent 1 continued. Work remains.']
+
+
+def test_alert_modes_route_to_selected_channels_in_order():
+    async def check():
+        sent = []
+        async def ntfy(message): sent.append(('ntfy', message))
+        async def imessage(message): sent.append(('imessage', message))
+        async def call(message): sent.append(('facetime_call', message))
+        alerts = StuckAlerts('fake', channels=('ntfy', 'imessage', 'facetime_call'), sender=ntfy)
+        alerts._imessage, alerts._facetime_call = imessage, call
+        for mode, expected in [('text', ['ntfy', 'imessage']), ('call', ['facetime_call']),
+                               ('text_then_call', ['ntfy', 'imessage', 'facetime_call'])]:
+            sent.clear()
+            await alerts.dispatch('test', mode=mode)
+            assert [name for name, _ in sent] == expected
+    asyncio.run(check())
+
+
+def test_alert_config_validates_modes_and_channel_names():
+    from app.config import ConfigError, load_settings
+    import pytest
+    s = load_settings({'ALERT_CHANNELS': 'ntfy,imessage,facetime_call', 'ALERT_MODE': 'text_then_call'})
+    assert s.alert_channels == ('ntfy', 'imessage', 'facetime_call') and s.alert_mode == 'text_then_call'
+    with pytest.raises(ConfigError, match='ALERT_MODE'):
+        load_settings({'ALERT_MODE': 'unknown'})
+    with pytest.raises(ConfigError, match='ALERT_CHANNELS'):
+        load_settings({'ALERT_CHANNELS': 'ntfy,ntfy'})
