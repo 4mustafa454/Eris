@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LiveProvider, useLive } from './lib/store'
 import Live from './pages/Live'
+import { AgentPills } from './lib/status'
 import Approvals from './pages/Approvals'
 import Conversations from './pages/Conversations'
 import Tasks from './pages/Tasks'
@@ -51,10 +52,13 @@ function Shell() {
             </a>
           ))}
         </nav>
-        <span className={`ml-auto flex items-center gap-1.5 text-xs ${online ? 'text-ok' : 'text-bad'}`}>
-          <span className={`size-2 rounded-full ${online ? 'bg-ok' : 'bg-bad'}`} />
-          {online ? 'harness live' : 'harness offline'}
-        </span>
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-4 gap-y-2">
+          <AgentPills />
+          <span className={`flex items-center gap-1.5 text-xs ${online ? 'text-ok' : 'text-bad'}`}>
+            <span className={`size-2 rounded-full ${online ? 'bg-ok' : 'bg-bad'}`} />
+            {online ? 'harness live' : 'harness offline'}
+          </span>
+        </div>
       </header>
       <div className="meander" aria-hidden="true" />
       {!online && (
