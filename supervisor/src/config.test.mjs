@@ -219,3 +219,15 @@ test('bad interruption values fail startup naming the variable, alongside any ot
   }
   assert.throws(() => loadConfig({ ...base, STT_PROVIDER: 'nope', INTERRUPT_MIN_WORDS: 'x' }), /STT_PROVIDER[\s\S]*INTERRUPT_MIN_WORDS/);
 });
+
+test('video defaults to 15 fps at 1920×1080; env switches to the 720p / 10 fps fallback', () => {
+  assert.deepEqual(loadConfig(base).video, { fps: 15, resolution: '1080p', width: 1920, height: 1080 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_FPS: '10', VIDEO_RESOLUTION: '720P' }).video, { fps: 10, resolution: '720p', width: 1280, height: 720 });
+  assert.equal(loadConfig({ ...base, VIDEO_FPS: '' }).video.fps, 15);
+});
+
+test('bad video values fail startup naming the variable', () => {
+  for (const [name, value] of [['VIDEO_FPS', '0'], ['VIDEO_FPS', '31'], ['VIDEO_FPS', '7.5'], ['VIDEO_FPS', 'x'], ['VIDEO_RESOLUTION', '4k'], ['VIDEO_RESOLUTION', '800x600']]) {
+    assert.throws(() => loadConfig({ ...base, [name]: value }), new RegExp(name), `${name}=${value}`);
+  }
+});

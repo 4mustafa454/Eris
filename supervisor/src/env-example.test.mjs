@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { registries, ROLES, TURN_ENV } from './config.mjs';
+import { registries, ROLES, TURN_ENV, VIDEO_ENV } from './config.mjs';
 
 const text = readFileSync(fileURLToPath(new URL('../.env.example', import.meta.url)), 'utf8');
 const assignments = text.split('\n').filter(l => /^[A-Z][A-Z0-9_]*=/.test(l));
@@ -21,7 +21,7 @@ test('.env.example lists every variable the supervisor reads', () => {
     'LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME',
     'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL',
   ]);
-  for (const name of TURN_ENV) wanted.add(name);
+  for (const name of [...TURN_ENV, ...VIDEO_ENV]) wanted.add(name);
   for (const { selector } of Object.values(ROLES)) wanted.add(selector);
   for (const role of Object.values(registries)) {
     for (const entry of Object.values(role)) {
@@ -35,7 +35,7 @@ test('.env.example lists every variable the supervisor reads', () => {
 
 test('.env.example has nothing the supervisor does not read', () => {
   const known = new Set(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME', 'HARNESS_URL', 'GREET_ON_JOIN', 'LOG_LEVEL']);
-  for (const name of TURN_ENV) known.add(name);
+  for (const name of [...TURN_ENV, ...VIDEO_ENV]) known.add(name);
   for (const { selector } of Object.values(ROLES)) known.add(selector);
   for (const role of Object.values(registries)) {
     for (const entry of Object.values(role)) {

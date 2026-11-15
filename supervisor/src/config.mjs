@@ -72,6 +72,29 @@ export function buildTurnHandling(turn = TURN_DEFAULTS) {
   };
 }
 
+/** Camera track settings (all optional). 1280×720 and/or 10 fps are the fallbacks if the call costs too much CPU. */
+export const VIDEO_DEFAULTS = { fps: 15, resolution: '1080p' };
+export const RESOLUTIONS = { '1080p': { width: 1920, height: 1080 }, '720p': { width: 1280, height: 720 } };
+/** Every env var the video settings read (for .env.example). */
+export const VIDEO_ENV = ['VIDEO_FPS', 'VIDEO_RESOLUTION'];
+
+function readVideo(env, problems) {
+  let fps = VIDEO_DEFAULTS.fps;
+  const rawFps = get(env, 'VIDEO_FPS');
+  if (rawFps !== undefined) {
+    const n = Number(rawFps);
+    if (Number.isInteger(n) && n >= 1 && n <= 30) fps = n;
+    else problems.push('VIDEO_FPS must be a whole number from 1 to 30');
+  }
+  let resolution = VIDEO_DEFAULTS.resolution;
+  const rawRes = get(env, 'VIDEO_RESOLUTION')?.toLowerCase();
+  if (rawRes !== undefined) {
+    if (RESOLUTIONS[rawRes]) resolution = rawRes;
+    else problems.push(`VIDEO_RESOLUTION must be one of: ${Object.keys(RESOLUTIONS).join(', ')}`);
+  }
+  return { fps, resolution, ...RESOLUTIONS[resolution] };
+}
+
 export const registries = {
   stt: {
     deepgram: {
@@ -193,6 +216,7 @@ export function loadConfig(env = process.env) {
   const harnessUrl = (get(env, 'HARNESS_URL') ?? 'http://localhost:8787').replace(/\/+$/, '');
   const problems = resolved.flatMap(problemsOf);
   const turn = readTurn(env, problems);
+  const video = readVideo(env, problems);
   if (!/^https?:\/\//.test(harnessUrl)) problems.push('HARNESS_URL must start with http:// or https://');
   if (problems.length) throw new Error(`Invalid supervisor configuration:\n- ${problems.join('\n- ')}`);
   return {
@@ -200,6 +224,7 @@ export function loadConfig(env = process.env) {
     harnessUrl,
     greetOnJoin: env.GREET_ON_JOIN === '1',
     turn,
+    video,
   };
 }
 
