@@ -23,7 +23,7 @@ export function Badge({ state }: { state: string }) {
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-line bg-panel p-4 ${className}`}>{children}</div>
+  return <div className={`rounded-xl border border-line bg-panel p-4 shadow-md shadow-black/20 ${className}`}>{children}</div>
 }
 
 /** Shown where a §5 route is not built in the harness yet. */

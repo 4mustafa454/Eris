@@ -73,7 +73,7 @@ export interface SearchHit {
 
 /** Thrown for any non-2xx. 404/405 on a §5 route the harness has not built yet means "backend pending". */
 export class HarnessError extends Error {
-  constructor(public status: number) {
+  constructor(public status: number, public detail = '') {
     super(`harness ${status}`)
   }
   get pending() {
@@ -83,7 +83,10 @@ export class HarnessError extends Error {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${HARNESS}${path}`, init)
-  if (!res.ok) throw new HarnessError(res.status)
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { detail?: unknown } | null
+    throw new HarnessError(res.status, typeof body?.detail === 'string' ? body.detail : '')
+  }
   return (await res.json()) as T
 }
 const json = (method: string, body: unknown): RequestInit => ({

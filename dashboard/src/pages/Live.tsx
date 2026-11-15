@@ -13,7 +13,7 @@ function Frame() {
   }, [])
   return (
     <div className="mx-auto w-full max-w-[300px]">
-      <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-line bg-panel">
+      <div className="gold-glow relative aspect-[9/16] overflow-hidden rounded-2xl bg-panel">
         <img
           src={`${FRAME_URL}?t=${tick}`}
           alt="What the PM is showing on the call"
@@ -50,7 +50,7 @@ function useLog(a: AgentState) {
 function AgentCard({ a }: { a: AgentState }) {
   const lines = useLog(a)
   return (
-    <div className="rounded-xl border border-l-4 border-line bg-panel p-4" style={{ borderLeftColor: a.color }}>
+    <div className="rounded-xl border border-l-4 border-line bg-panel p-4 shadow-md shadow-black/20" style={{ borderLeftColor: a.color }}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="size-3 rounded-full" style={{ background: a.color }} />

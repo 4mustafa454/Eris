@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  chat, getSession, search, type ActionRow, type SearchHit, type Session, type SessionDetail,
+  chat, getSession, HarnessError, search, type ActionRow, type SearchHit, type Session, type SessionDetail,
 } from '../lib/harness'
 import { useLive } from '../lib/store'
 import { Card, Pending, ago, isPending } from '../lib/ui'
@@ -45,6 +45,7 @@ function Detail({ id }: { id: string }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [chatState, setChatState] = useState<'idle' | 'pending' | 'failed'>('idle')
+  const [chatErr, setChatErr] = useState('')
   const [continuing, setContinuing] = useState(false)
   const end = useRef<HTMLDivElement>(null)
   const load = useCallback(() => getSession(id).then(setD).catch(() => setMissing(true)), [id])
@@ -63,6 +64,7 @@ function Detail({ id }: { id: string }) {
       await load()
     } catch (e) {
       setChatState(isPending(e) ? 'pending' : 'failed')
+      setChatErr(e instanceof HarnessError ? e.detail : '')
     } finally {
       setBusy(false)
     }
@@ -105,7 +107,7 @@ function Detail({ id }: { id: string }) {
       <div ref={end} />
       <div className="sticky bottom-0 mt-auto border-t border-line bg-bg pt-3">
         {!continuing ? (
-          <button onClick={() => setContinuing(true)} className="rounded-md bg-fg px-4 py-2 text-sm font-medium text-black">
+          <button onClick={() => setContinuing(true)} className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-black">
             Continue this conversation
           </button>
         ) : (
@@ -120,12 +122,12 @@ function Detail({ id }: { id: string }) {
                 aria-label="Follow-up message"
                 className="flex-1 resize-none rounded-lg border border-line bg-panel px-3 py-2 text-sm"
               />
-              <button onClick={send} disabled={busy || !text.trim()} className="self-end rounded-md bg-fg px-4 py-2 text-sm font-medium text-black">
+              <button onClick={send} disabled={busy || !text.trim()} className="self-end rounded-md bg-gold px-4 py-2 text-sm font-medium text-black">
                 {busy ? 'Sending…' : 'Send'}
               </button>
             </div>
             {chatState === 'pending' && <div className="mt-3"><Pending what="Continue" route="POST /chat" /></div>}
-            {chatState === 'failed' && <p className="mt-2 text-sm text-bad" role="alert">That did not send. Try again.</p>}
+            {chatState === 'failed' && <p className="mt-2 text-sm text-bad" role="alert">{chatErr || 'That did not send. Try again.'}</p>}
           </>
         )}
       </div>

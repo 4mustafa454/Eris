@@ -2,21 +2,43 @@
 
 /* Graphite: neutral black and grey, ported from the website theme. Agent colours come from the harness. */
 @theme {
-  --color-bg: #0b0b0c;
-  --color-panel: #141416;
-  --color-panel2: #1b1b1e;
-  --color-line: #28282c;
-  --color-fg: #ececee;
-  --color-muted: #8d8d96;
+  /* Same Graphite values as the Eris site (my-app/src/themes.css) */
+  --color-bg: #0a0a0a;
+  --color-panel: #141414;
+  --color-panel2: #1c1c1c;
+  --color-line: #2a2a2a;
+  --color-fg: #ededed;
+  --color-muted: #9a9a9a;
   --color-gold: #c9a24b;
   --color-ok: #3ecf8e;
   --color-warn: #e0b341;
   --color-bad: #ff5d5d;
   --color-info: #5aa9ff;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 html, body, #root { height: 100%; }
-body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+body {
+  background-color: var(--color-bg);
+  /* Eris's apple-of-discord glow, fixed to the top of the page */
+  background-image: radial-gradient(60% 45% at 50% -8%, rgba(201, 162, 75, 0.11), transparent 70%);
+  background-repeat: no-repeat;
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+h1, h2, h3 { letter-spacing: -0.01em; }
+::selection { background: rgba(201, 162, 75, 0.35); }
+
+/* Greek-key divider, same tile as the site */
+.meander {
+  height: 16px;
+  opacity: 0.35;
+  background-repeat: repeat-x;
+  background-position: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='16' viewBox='0 0 32 16'%3E%3Cpath d='M1 15V1h14v10H6V6h5' fill='none' stroke='%239a9a9a' stroke-width='1.5'/%3E%3Cpath d='M17 15V1h14v10h-9V6h5' fill='none' stroke='%239a9a9a' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+.gold-glow { box-shadow: 0 0 0 1px rgba(201, 162, 75, 0.55), 0 0 28px rgba(201, 162, 75, 0.18); }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.45; }
 :focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }

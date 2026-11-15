@@ -23,11 +23,10 @@ Checks: `npm run typecheck`, `npm run build`.
 
 | Page | Uses | Status against the current harness |
 |---|---|---|
-| Live | `/events` (SSE), `/agents/{id}/log`, `POST /stop-all`, supervisor `:8788/frame.jpg` | Works. Frame shows once the supervisor renderer runs. |
-| Approvals | `/events` (approval records), `GET /approvals`, `POST /approvals/{id}` | **Backend pending**: routes not built. |
-| Conversations | `/sessions`, `/sessions/{id}`, `GET /search`, `POST /chat` | List and detail work. Search and Continue are **backend pending**. |
-| Tasks | `/tasks`, `POST /agents/{id}/task`, `POST /tasks`, `PATCH /tasks/{id}`, `/agents/{id}/pause\|resume` | Board and steer work. Create, assign, cancel, pause/resume are **backend pending**. |
-| Settings | `GET/PUT /settings`, `POST /settings/test/{provider}` | **Backend pending**: routes not built. |
+| Live | `/events` (SSE), `/agents/{id}/log`, `POST /stop-all`, supervisor `:8788/frame.jpg` | Works. The frame shows once the supervisor renderer runs. |
+| Approvals | `/events`, `GET /approvals`, `POST /approvals/{id}` | Works (seed one with `scripts/seed-approval.sh`). |
+| Conversations | `/sessions`, `/sessions/{id}`, `GET /search`, `POST /chat` | Works. Continue needs a configured PM provider (the harness answers "PM provider is not configured" otherwise). |
+| Tasks | `/tasks`, `POST /agents/{id}/task`, `POST /tasks`, `PATCH /tasks/{id}`, pause/resume | Works. |
+| Settings | `GET/PUT /settings`, `POST /settings/test/{provider}` | Works. |
 
-"Backend pending" panels appear when a §5 route answers 404/405. They are built to the spec, so they start working when
-the route lands. No harness route or frozen interface was changed.
+A "Backend pending" panel appears only if a §5 route answers 404/405 (for example against an older harness). No harness route or frozen interface was changed.

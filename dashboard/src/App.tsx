@@ -42,7 +42,7 @@ function Shell() {
               key={t.id}
               href={`#/${t.id}`}
               aria-current={tab === t.id ? 'page' : undefined}
-              className={`rounded-md px-3 py-1.5 text-sm ${tab === t.id ? 'bg-panel2 text-fg' : 'text-muted hover:text-fg'}`}
+              className={`rounded-md px-3 py-1.5 text-sm ${tab === t.id ? 'bg-panel2 text-fg shadow-[inset_0_-2px_0_var(--color-gold)]' : 'text-muted hover:text-fg'}`}
             >
               {t.label}
               {t.id === 'approvals' && pending > 0 && (
@@ -56,6 +56,7 @@ function Shell() {
           {online ? 'harness live' : 'harness offline'}
         </span>
       </header>
+      <div className="meander" aria-hidden="true" />
       {!online && (
         <div role="alert" className="border-b border-bad/40 bg-bad/10 px-5 py-2 text-sm text-bad">
           Can&apos;t reach the harness. Start it with{' '}
