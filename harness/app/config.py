@@ -56,6 +56,31 @@ def load_env_file(path: Path | str | None = None, env=None) -> None:
             env[key] = value
 
 
+def env_file_warnings(path: Path | str | None = None, env=None) -> list[str]:
+    """Things in harness/.env that are silently ignored and would otherwise surface much later as a confusing failure.
+
+    Reports line NUMBERS only, never contents: the file holds secrets.
+    """
+    env = os.environ if env is None else env
+    p = Path(path) if path else Path(env.get("ERIS_ENV_FILE") or HARNESS_DIR / ".env")
+    try:
+        text = p.read_text()
+    except OSError:
+        return []
+    out = []
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            out.append(f"{p.name} line {n} is not KEY=VALUE and is ignored (a value that wrapped onto a new line?)")
+            continue
+        name = line.partition("=")[0].strip().removeprefix("export ").strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            out.append(f"{p.name} line {n} has an invalid variable name and is ignored")
+    return out
+
+
 def _get(env, name: str) -> str | None:
     value = env.get(name)
     if value is None or value.strip() == "" or value.strip().startswith("YOUR_"):
@@ -118,3 +143,28 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
     return Settings(tuple(real), image, turns, demo_repo, secret_name)
+
+
+def main() -> int:
+    """`python -m app.config`: check harness/.env and the settings without starting anything. Never prints secrets."""
+    load_env_file()
+    for warning in env_file_warnings():
+        print(f"warning: {warning}")
+    try:
+        s = load_settings()
+    except ConfigError as error:
+        print(error)
+        return 1
+    print(f"real workers: {', '.join(s.real_workers) or 'none (all mock)'}")
+    if s.secret_name:
+        print(f"{s.secret_name}: set ({len(os.environ[s.secret_name].strip())} characters)")
+    else:
+        print("no API credential set (only needed for real workers)")
+    print(f"image: {s.worker_image}   max turns: {s.claude_max_turns}")
+    print(f"demo repo: {s.demo_repo} ({'a git repo' if (s.demo_repo / '.git').exists() else 'NOT a git repo: run scripts/make-demo-repo.sh'})")
+    print("OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

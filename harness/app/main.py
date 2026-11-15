@@ -1,5 +1,6 @@
 """Eris harness (FastAPI, :8787). Run from harness/: uvicorn app.main:app --port 8787"""
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +15,8 @@ from .workers.manager import WorkerManager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    for warning in config.env_file_warnings():
+        print(f"[eris] {warning}", file=sys.stderr)
     config.load_env_file()
     settings = config.load_settings()  # fails at startup, naming the variable, if REAL_WORKERS & co are wrong
     manager = WorkerManager(settings)

@@ -62,8 +62,12 @@ npx -y @anthropic-ai/claude-code@2.1.316 setup-token     # then put CLAUDE_CODE_
 cp .env.example .env                             # and set REAL_WORKERS=agent-1
 ```
 
+**Check first:** `.venv/bin/python -m app.config` validates `harness/.env` without starting anything: it reports bad values,
+lines that are silently ignored (a token that wrapped onto a second line is the classic one) and the token's length, never
+its value.
+
 **Run:** `.venv/bin/uvicorn app.main:app --port 8787` as before. A bad `REAL_WORKERS` or a missing token stops startup and
-names the variable.
+names the variable; ignored `.env` lines are warned about on startup.
 
 ```sh
 curl -X POST localhost:8787/agents/agent-1/task -H 'content-type: application/json' \

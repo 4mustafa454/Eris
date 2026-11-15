@@ -109,3 +109,59 @@ def test_env_example_has_names_only_no_duplicates():
 
 def test_env_example_lists_exactly_the_variables_config_reads():
     assert sorted(NAMES) == sorted(config.ENV_NAMES)
+
+
+# --- .env problems that would otherwise be silent ---------------------------------------------------------------
+
+LEAK = "SECRET-TAIL-OF-A-WRAPPED-TOKEN-xyz"
+
+
+def test_a_value_that_wrapped_onto_a_new_line_is_reported_by_line_number_without_its_content(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text(f"# comment\nREAL_WORKERS=agent-1\nCLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-first-half\n {LEAK}\n\nWORKER_IMAGE=x\n")
+    warnings = config.env_file_warnings(p, {})
+    assert len(warnings) == 1 and "line 4" in warnings[0] and "wrapped" in warnings[0]
+    assert LEAK not in warnings[0] and "sk-ant" not in warnings[0], "the file holds secrets: never echo its content"
+
+
+def test_other_ignored_lines_are_reported_too_and_clean_files_are_not(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text("1BAD=x\nok=fine\nexport REAL_WORKERS=agent-1\nA-B=3\n")
+    w = config.env_file_warnings(p, {})
+    assert [x.split(" has ")[0] for x in w] == [".env line 1", ".env line 4"]
+    p.write_text("# nothing wrong\nREAL_WORKERS=agent-1\n\nCLAUDE_MAX_TURNS=5\n")
+    assert config.env_file_warnings(p, {}) == []
+    assert config.env_file_warnings(tmp_path / "missing.env", {}) == []
+
+
+def test_the_check_command_summarises_without_printing_any_secret(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "e.env"
+    p.write_text(f"REAL_WORKERS=agent-1\nCLAUDE_CODE_OAUTH_TOKEN={TOKEN}\nDEMO_REPO={tmp_path}\n")
+    monkeypatch.setenv("ERIS_ENV_FILE", str(p))
+    assert config.main() == 0
+    out = capsys.readouterr().out
+    assert "real workers: agent-1" in out and f"CLAUDE_CODE_OAUTH_TOKEN: set ({len(TOKEN)} characters)" in out
+    assert "NOT a git repo" in out and out.strip().endswith("OK")
+    assert TOKEN not in out and "sk-ant" not in out
+
+
+def test_the_check_command_fails_clearly_on_a_bad_file(tmp_path, monkeypatch, capsys):
+    p = tmp_path / "e.env"
+    p.write_text(f"REAL_WORKERS=-1\nCLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-first-half\n {LEAK}\n")
+    monkeypatch.setenv("ERIS_ENV_FILE", str(p))
+    assert config.main() == 1
+    out = capsys.readouterr().out
+    assert "warning:" in out and "line 3" in out and "REAL_WORKERS: unknown agent '-1'" in out
+    assert LEAK not in out and "first-half" not in out
+
+
+def test_the_app_prints_env_warnings_at_startup(db_file, tmp_path, monkeypatch, capsys):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    p = tmp_path / "e.env"
+    p.write_text(f"WORKER_IMAGE=x\n {LEAK}\n")
+    monkeypatch.setenv("ERIS_ENV_FILE", str(p))
+    with TestClient(app):
+        pass
+    err = capsys.readouterr().err
+    assert "[eris] e.env line 2 is not KEY=VALUE" in err and LEAK not in err
