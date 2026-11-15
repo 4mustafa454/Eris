@@ -1,0 +1,3 @@
+- Run tests: pytest -q
+- Commit locally after each passing change. Never push.
+- If blocked, end your reply with one line starting "BLOCKED:" followed by the question.
