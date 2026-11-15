@@ -41,6 +41,11 @@ class Approval(BaseModel):
     decided_at: str | None = None
 
 
+class ApprovalDecision(BaseModel):
+    decision: Literal["approved", "denied"]
+    session_id: str | None = None
+
+
 class Session(BaseModel):
     id: str
     channel: Channel
