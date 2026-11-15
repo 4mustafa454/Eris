@@ -41,7 +41,7 @@ def test_stuck_alerts_are_debounced_per_agent_and_survive_restart(db_file):
         agents.add_event(conn, 'agent-1', 'stuck', 'reason again')
         agents.add_event(conn, 'agent-2', 'stuck', 'reason')
         await alerts.poll()
-        assert sent == ['agent-1 needs help. Open Eris for details.', 'agent-2 needs help. Open Eris for details.']
+        assert sent == ['Agent 1 is stuck: reason', 'Agent 2 is stuck: reason']
         now[0] += 119
         restarted = StuckAlerts('fake', sender=sender, clock=lambda: now[0])
         restarted.start_at_current()
@@ -111,3 +111,36 @@ def test_alert_config_validates_modes_and_channel_names():
         load_settings({'ALERT_MODE': 'unknown'})
     with pytest.raises(ConfigError, match='ALERT_CHANNELS'):
         load_settings({'ALERT_CHANNELS': 'ntfy,ntfy'})
+
+
+def test_alert_text_names_agent_and_reason(db_file):
+    from app.alerts import format_alert
+    from app.approvals import AWAITING
+    assert format_alert('Agent 2', AWAITING + 'git push') == 'Agent 2 needs approval: git push'
+    assert format_alert('Agent 1', 'v1 or v2 endpoint?') == 'Agent 1 is stuck: v1 or v2 endpoint?'
+    assert format_alert('Agent 1', None) == 'Agent 1 is stuck'
+    long = format_alert('Agent 1', 'x' * 300)
+    assert len(long) <= 100 and long.startswith('Agent 1 is stuck: xxx')
+
+
+def test_poll_uses_live_stuck_reason_and_approval(db_file):
+    from app.approvals import create_approval
+    seed()
+    sent = []
+    async def sender(message):
+        sent.append(message)
+    async def check():
+        alerts = StuckAlerts('fake', sender=sender)
+        alerts.start_at_current()
+        conn = db.connect()
+        conn.execute("UPDATE agents SET state='stuck', stuck_reason='v1 or v2 endpoint?' WHERE id='agent-1'")
+        agents.add_event(conn, 'agent-1', 'stuck', 'stuck: whatever')
+        conn.execute("UPDATE agents SET state='working', task_id=NULL WHERE id='agent-2'")
+        conn.commit()
+        create_approval(conn, 'agent-2', 'git push')
+        conn.commit()
+        await alerts.poll()
+        conn.close()
+    asyncio.run(check())
+    assert sent[0] == 'Agent 1 is stuck: v1 or v2 endpoint?'
+    assert len(sent) == 2 and sent[1].startswith('Agent 2') and 'git push' in sent[1]
