@@ -4,6 +4,7 @@ import Live from './pages/Live'
 import Approvals from './pages/Approvals'
 import Conversations from './pages/Conversations'
 import Tasks from './pages/Tasks'
+import Settings from './pages/Settings'
 
 const TABS = [
   { id: 'live', label: 'Live' },
@@ -66,7 +67,7 @@ function Shell() {
         {tab === 'approvals' && <Approvals />}
         {tab === 'conversations' && <Conversations />}
         {tab === 'tasks' && <Tasks />}
-        {tab !== 'live' && tab !== 'approvals' && tab !== 'conversations' && tab !== 'tasks' && <p className="text-muted">Coming next.</p>}
+        {tab === 'settings' && <Settings />}
       </main>
     </div>
   )
