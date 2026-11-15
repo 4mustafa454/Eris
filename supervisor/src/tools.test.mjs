@@ -34,6 +34,11 @@ function setup(overrides = {}, display, sessionId) {
       return { ...a, state: 'working', stuck_reason: null };
     },
     stopAll: async () => { calls.push(['stopAll']); return AGENTS.map(a => ({ ...a, state: 'paused' })); },
+    pauseAgent: async (id, sid) => { calls.push(['pauseAgent', id, sid]); return { ...AGENTS[0], state: 'paused' }; },
+    resumeAgent: async (id, sid) => { calls.push(['resumeAgent', id, sid]); return { ...AGENTS[0], state: 'working' }; },
+    createTask: async (title, instruction, id, sid) => { calls.push(['createTask', title, instruction, id, sid]); return { title, instruction, agent_id: id, status: 'queued' }; },
+    decideApproval: async (id, decision, sid) => { calls.push(['decideApproval', id, decision, sid]); return { id, status: decision }; },
+    searchHistory: async query => { calls.push(['searchHistory', query]); return [{ session_id: 'old', snippet: 'v2', created_at: 't' }]; },
     ...overrides,
   };
   const tools = buildTools({ harness, log: { action: a => actions.push(a) }, display, sessionId });
@@ -112,21 +117,23 @@ test('harness down: the tool answers instead of throwing, and still logs once', 
   assert.equal(actions.length, 2);
 });
 
-test('mutating tools answer "not available yet" and log nothing (the harness logs them later)', async () => {
-  const { run, calls, actions } = setup();
-  for (const name of ['pause_agent', 'resume_agent', 'create_task', 'decide_approval']) {
-    assert.equal(await run(name, { n: 1, instruction: 'x', title: 't', id: 'a', decision: 'approved' }), 'not available yet', name);
-  }
-  assert.deepEqual(calls, []);
+test('mutating PM tools pass the session to the harness and are not caller logged', async () => {
+  const { run, calls, actions } = setup({}, undefined, 'sess-1');
+  assert.equal((await run('pause_agent', { n: 1 })).agent.state, 'paused');
+  assert.equal((await run('resume_agent', { n: 1 })).agent.state, 'working');
+  assert.equal((await run('create_task', { title: 'Tests', instruction: 'Write tests', agent: 2 })).queued, true);
+  assert.equal((await run('decide_approval', { id: 'ap1', decision: 'approved' })).approval.status, 'approved');
+  assert.deepEqual(calls, [['pauseAgent', 'agent-1', 'sess-1'], ['resumeAgent', 'agent-1', 'sess-1'],
+    ['createTask', 'Tests', 'Write tests', 'agent-2', 'sess-1'], ['decideApproval', 'ap1', 'approved', 'sess-1']]);
   assert.deepEqual(actions, []);
 });
 
-test('the read-only stub (search_history) answers "not available yet" and is logged once', async () => {
+test('search_history calls the harness and is logged once by the caller', async () => {
   const { run, calls, actions } = setup();
-  assert.equal(await run('search_history', { query: 'x' }), 'not available yet');
-  assert.deepEqual(calls, []);
-  assert.deepEqual(actions.map(a => a.tool), ['search_history']);
-  assert.deepEqual(actions[0].result, { available: false });
+  assert.equal((await run('search_history', { query: 'v2' })).hits[0].snippet, 'v2');
+  assert.deepEqual(calls, [['searchHistory', 'v2']]);
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].tool, 'search_history');
 });
 
 test('show_grid switches the video to the grid and is logged once', async () => {
@@ -275,4 +282,13 @@ test('stop_all calls the kill switch and reports every agent, briefly', async ()
 test('stop_all with the harness down says so', async () => {
   const { run } = setup({ stopAll: async () => { throw new HarnessError('unreachable'); } });
   assert.deepEqual(await run('stop_all', {}), { error: "I can't reach the team right now." });
+});
+
+test('new tools handle denied and conflicting approvals without caller-side mutation logs', async () => {
+  const { run, calls, actions } = setup({}, undefined, 'sess-2');
+  assert.equal((await run('decide_approval', { id: 'a2', decision: 'denied' })).approval.status, 'denied');
+  assert.deepEqual(calls[0], ['decideApproval', 'a2', 'denied', 'sess-2']);
+  assert.deepEqual(actions, []);
+  const failed = setup({ decideApproval: async () => { throw new HarnessError('conflict', { status: 409 }); } });
+  assert.match((await failed.run('decide_approval', { id: 'a2', decision: 'approved' })).error, /already been decided/);
 });

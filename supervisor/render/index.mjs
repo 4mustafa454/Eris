@@ -3,6 +3,7 @@
 import { startFrameServer } from './frame-server.mjs';
 import { createPoller } from './poller.mjs';
 import { createRenderer } from './renderer.mjs';
+import { startApprovalEvents } from './approvals.mjs';
 
 /**
  * @param {{ harness: object, harnessUrl?: string, port?: number, intervalMs?: number, logLines?: number,
@@ -12,7 +13,9 @@ import { createRenderer } from './renderer.mjs';
 export async function startRenderLoop({ harness, harnessUrl, port = 8788, intervalMs = 500, logLines = 10, width, height, safe, serve = true, log = console }) {
   const renderer = createRenderer({ width, height, safe, log });
   const poller = createPoller({ harness, harnessUrl, intervalMs, logLines, onModel: model => renderer.render(model) });
-  const server = serve ? await startFrameServer({ port, getJpeg: () => renderer.jpeg(), log }) : null;
+  const approvals = harnessUrl ? startApprovalEvents({ harnessUrl, harness, onApprovals: a => poller.setApprovals(a) }) : null;
+  let publishedJpeg = null;
+  const server = serve ? await startFrameServer({ port, getJpeg: () => publishedJpeg ?? renderer.jpeg(), log }) : null;
 
   const ready = poller.tick(); // first frame as soon as the first poll lands
   poller.start();
@@ -29,8 +32,10 @@ export async function startRenderLoop({ harness, harnessUrl, port = 8788, interv
     /** Latest frame as 1920×1080 RGBA (same instance until the content changes), or null before the first. */
     currentRgba: () => renderer.render(poller.model).rgba,
     currentJpeg: () => renderer.jpeg(),
+    /** Pin the mirror to the frame most recently captured by the video source. */
+    markPublished: () => { publishedJpeg = renderer.jpeg(); },
     currentPng: () => renderer.png(),
     get lastRenderMs() { return renderer.lastRenderMs; },
-    async stop() { poller.stop(); await server?.close(); },
+    async stop() { poller.stop(); await approvals?.stop(); await server?.close(); },
   };
 }

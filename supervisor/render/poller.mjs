@@ -14,12 +14,13 @@ export function createPoller({ harness, harnessUrl, intervalMs = 500, logLines =
   let focusId = null;
   let agents = [];
   let logs = {};
+  let approvals = [];
   let status = 'ok';
   let lastSeen = null;
   let busy = false;
   let timer = null;
 
-  const model = () => ({ mode, focusId, agents, logs, harness: status, harnessUrl, lastSeen });
+  const model = () => ({ mode, focusId, agents, logs, approvals, harness: status, harnessUrl, lastSeen });
   const emit = () => { try { onModel(model()); } catch { /* a bad consumer must not stop polling */ } };
 
   async function tick() {
@@ -60,6 +61,7 @@ export function createPoller({ harness, harnessUrl, intervalMs = 500, logLines =
       focusId = mode === 'focus' ? id : null;
       emit();
     },
+    setApprovals(next) { approvals = next; emit(); },
     get model() { return model(); },
   };
 }

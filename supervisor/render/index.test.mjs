@@ -54,3 +54,36 @@ test('the same frame instance is returned while nothing changes', async () => {
     assert.equal(loop.currentRgba(), a);
   } finally { await loop.stop(); }
 });
+
+test('approval SSE updates the banner and clears it after a decision', async () => {
+  const { createServer } = await import('node:http');
+  let events;
+  const server = createServer((req, res) => {
+    if (req.url === '/events') {
+      events = res;
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.flushHeaders();
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const harness = { ...fakeHarness(), getApprovals: async () => [] };
+  const loop = await startRenderLoop({ harness, harnessUrl: `http://127.0.0.1:${server.address().port}`, serve: false, intervalMs: 100, log: quiet });
+  const until = async predicate => {
+    for (let i = 0; i < 100; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert.fail('approval SSE did not update the renderer');
+  };
+  try {
+    await loop.ready;
+    await until(() => events);
+    const before = Uint8Array.from(loop.currentRgba());
+    events.write(`data: ${JSON.stringify({ type: 'approval', data: { id: 'ap1', agent_id: 'agent-2', action: 'git_push', status: 'pending' } })}\n\n`);
+    await until(() => loop.snapshot().approvals.some(a => a.id === 'ap1'));
+    assert.notDeepEqual(loop.currentRgba(), before);
+    events.write(`data: ${JSON.stringify({ type: 'approval', data: { id: 'ap1', status: 'denied' } })}\n\n`);
+    await until(() => loop.snapshot().approvals.length === 0);
+    assert.deepEqual(loop.currentRgba(), before);
+  } finally {
+    await loop.stop();
+    await new Promise(resolve => server.close(resolve));
+  }
+});

@@ -236,7 +236,7 @@ Agent Console test sessions use channel `facetime`; reset the dev DB (`scripts/s
 
 ### 5.5 Frames
 - Renderer lives **inside** the supervisor (no IPC for pixels). Polls `/agents` + `/agents/{id}/log` ~2 Hz; draws 1920×1080; publishes at 15 fps (repeat last frame).
-- Modes: `grid` (≤3 tiles, ~28px min text, color badge per state) and `focus` (one agent, ~36px min text).
+- Modes: `grid` (1–6 tiles in an adaptive layout, ~28px min text, color badge per state) and `focus` (one agent, ~36px min text).
 - Also serves the latest frame as JPEG at `http://localhost:8788/frame.jpg` for the dashboard Live page.
 
 ## 6. Dashboard (`dashboard/`, Vite + React, :5173)

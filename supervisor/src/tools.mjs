@@ -1,10 +1,8 @@
 // PM tools for the voice agent. Names, descriptions and argument schemas come from shared/pm/tools.json,
-// the same list the web chat uses. Implemented: get_status, explain_agent (M1), show_grid, focus_agent (M2, they
-// switch the video) and send_task, stop_all (M3); the rest answer "not available yet" until their milestones.
+// the same list the web chat uses. The available handlers call the corresponding harness routes or switch video.
 //
 // Logging (AGENTS.md §5.3, log exactly once): read-only/display tools are logged by the caller, here, via
-// POST /sessions/{id}/actions. Mutating tools are logged by their own harness route once they exist,
-// so their "not available yet" stubs log nothing.
+// POST /sessions/{id}/actions. Mutating tools are logged by their own harness route.
 import { llm } from '@livekit/agents';
 import { HarnessError } from './harness.mjs';
 import { loadTools } from './pm-prompt.mjs';
@@ -66,6 +64,49 @@ const implementations = (harness, display, sessionId) => ({
       if (error instanceof HarnessError && error.status === 422) return { result: { error: NO_INSTRUCTION } };
       throw error;
     }
+  },
+
+  async pause_agent({ n }) {
+    const id = agentId(n);
+    if (!id) return { result: { error: noAgent(n) } };
+    try { return { result: { agent: brief(await harness.pauseAgent(id, sessionId)) } }; }
+    catch (error) { if (error instanceof HarnessError && error.status === 404) return { result: { error: noAgent(n) } }; throw error; }
+  },
+
+  async resume_agent({ n }) {
+    const id = agentId(n);
+    if (!id) return { result: { error: noAgent(n) } };
+    try { return { result: { agent: brief(await harness.resumeAgent(id, sessionId)) } }; }
+    catch (error) { if (error instanceof HarnessError && error.status === 404) return { result: { error: noAgent(n) } }; throw error; }
+  },
+
+  async create_task({ title, instruction, agent }) {
+    if (typeof title !== 'string' || !title.trim() || typeof instruction !== 'string' || !instruction.trim()) {
+      return { result: { error: 'A task title and instruction are required.' } };
+    }
+    const id = agent == null ? null : agentId(agent);
+    if (agent != null && !id) return { result: { error: noAgent(agent) } };
+    try {
+      const task = await harness.createTask(title.trim(), instruction.trim(), id, sessionId);
+      return { result: { task, queued: task.status === 'queued' } };
+    } catch (error) { if (error instanceof HarnessError && error.status === 404) return { result: { error: noAgent(agent) } }; throw error; }
+  },
+
+  async decide_approval({ id, decision }) {
+    if (typeof id !== 'string' || !id.trim() || !['approved', 'denied'].includes(decision)) {
+      return { result: { error: 'An approval and a clear decision are required.' } };
+    }
+    try { return { result: { approval: await harness.decideApproval(id, decision, sessionId) } }; }
+    catch (error) {
+      if (error instanceof HarnessError && error.status === 404) return { result: { error: 'That approval was not found.' } };
+      if (error instanceof HarnessError && error.status === 409) return { result: { error: 'That approval has already been decided.' } };
+      throw error;
+    }
+  },
+
+  async search_history({ query }) {
+    if (typeof query !== 'string' || !query.trim()) return { result: { error: 'A search query is required.' } };
+    return { result: { hits: await harness.searchHistory(query.trim()) } };
   },
 
   async stop_all() {

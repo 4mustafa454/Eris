@@ -104,6 +104,21 @@ function badge(measure, state, x, y, fontPx) {
 
 const background = (fill, frame) => ({ type: 'rect', x: 0, y: 0, w: frame.width, h: frame.height, fill });
 
+function approvalBanner(model, measure, frame, x, y, width) {
+  const pending = (model.approvals ?? []).find(a => a.status === 'pending');
+  if (!pending) return { ops: [], height: 0 };
+  const name = model.agents?.find(a => a.id === pending.agent_id)?.name ?? pending.agent_id?.replace(/^agent-/, 'Agent ') ?? 'An agent';
+  const action = String(pending.action ?? 'action').replace(/_/g, ' ');
+  const pad = 16;
+  const font = 28;
+  const available = (lineY) => rowWidth(frame, x + pad, lineY, font, width - 2 * pad);
+  return { height: 92, ops: [
+    { type: 'rect', x, y, w: width, h: 92, fill: COLORS.warn, radius: 12 },
+    textOp(measure, `Approval: ${name} · ${action}`, x + pad, y + 12, font, COLORS.warnText, available(y + 12), true),
+    textOp(measure, 'Say approve or deny', x + pad, y + 50, font, COLORS.warnText, available(y + 50), true),
+  ] };
+}
+
 /** Which view actually gets drawn: focus falls back to grid when the agent is not there. */
 export function effectiveView(model) {
   if (model.harness === 'unreachable') return 'unreachable';
@@ -119,38 +134,60 @@ export function layout(model, measure, frame = LANDSCAPE) {
 
 export function layoutGrid(model, measure, frame = LANDSCAPE) {
   const portrait = isPortrait(frame);
-  const T = portrait ? GRID_PORTRAIT : GRID;
+  const base = portrait ? GRID_PORTRAIT : GRID;
   const safe = safeOf(frame);
   // Everything, panels included, stays inside the margins and (portrait) the safe area.
-  const top = Math.max(T.margin, safe.top);
-  const bottom = frame.height - Math.max(T.margin, safe.bottom);
-  const left = Math.max(T.margin, safe.side); // landscape: safe.side is 0, so this is the plain margin
+  let top = Math.max(base.margin, safe.top);
+  let bottom = frame.height - Math.max(base.margin, safe.bottom);
+  const left = Math.max(base.margin, safe.side); // landscape: safe.side is 0, so this is the plain margin
   const agents = (model.agents ?? []).slice(0, MAX_TILES);
+  const compact = agents.length > 3;
+  let T = compact ? { ...base, name: 38, badge: 28, task: 28, log: 28, pad: 16, taskLines: 1 } : base;
   const ops = [background(COLORS.bg, frame)];
+  const banner = approvalBanner(model, measure, frame, left, top, frame.width - 2 * left);
+  ops.push(...banner.ops);
+  if (banner.height) top += banner.height + T.gap;
   if (!agents.length) {
     const w = rowWidth(frame, left, top, T.name, frame.width - 2 * left);
     ops.push(textOp(measure, 'No agents', left, top, T.name, COLORS.dim, w, true));
     return ops;
   }
   const n = agents.length;
-  // Landscape: tiles side by side, sharing the width. Portrait: stacked, full width, each sized as if there were
-  // MAX_TILES so positions do not jump when an agent appears or goes away.
-  const tileW = portrait ? frame.width - 2 * left : Math.floor((frame.width - 2 * left - T.gap * (n - 1)) / n);
-  const tileH = portrait ? Math.floor((bottom - top - T.gap * (MAX_TILES - 1)) / MAX_TILES) : bottom - top;
+  let columns = portrait ? (n > 3 ? 2 : 1) : Math.min(n, 3);
+  let rows = Math.ceil(n / columns);
+  let denseFallback = false;
+  // Dense portrait grids sit between the caller's two possible self-view corners.
+  if (portrait && compact) {
+    const cornerTop = Math.max(top, safe.top + CORNER.height + CORNER_GAP);
+    const cornerBottom = Math.min(bottom, frame.height - safe.bottom - CORNER.height - CORNER_GAP);
+    if (cornerBottom - cornerTop - T.gap * (rows - 1) >= rows * 190) {
+      top = cornerTop;
+      bottom = cornerBottom;
+    } else {
+      // With unusually large safe margins, use a compact single column instead of squeezing three rows into corners.
+      columns = 1;
+      rows = n;
+      denseFallback = true;
+      T = { ...T, name: 28, pad: 8, gap: 8 };
+    }
+  }
+  const tileW = Math.floor((frame.width - 2 * left - T.gap * (columns - 1)) / columns);
+  const tileH = Math.floor((bottom - top - T.gap * (rows - 1)) / rows);
   agents.forEach((a, i) => {
-    const x = portrait ? left : left + i * (tileW + T.gap);
-    const y = portrait ? top + i * (tileH + T.gap) : top;
+    const x = left + (i % columns) * (tileW + T.gap);
+    const y = top + Math.floor(i / columns) * (tileH + T.gap);
     const inner = tileW - T.stripe - 2 * T.pad;
     const tx = x + T.stripe + T.pad;
     const text = (t, ty, px, fill, bold = false) => textOp(measure, t, tx, ty, px, fill, rowWidth(frame, tx, ty, px, inner), bold);
-    ops.push({ type: 'rect', x, y, w: tileW, h: tileH, fill: COLORS.panel, radius: 16 });
+    const waiting = (model.approvals ?? []).some(ap => ap.status === 'pending' && ap.agent_id === a.id);
+    ops.push({ type: 'rect', x, y, w: tileW, h: tileH, fill: waiting ? '#574421' : COLORS.panel, radius: 16 });
     ops.push({ type: 'rect', x, y, w: T.stripe, h: tileH, fill: a.color || COLORS.dim });
     let cy = y + T.pad;
     ops.push(text(a.name, cy, T.name, COLORS.text, true));
-    cy += Math.round(T.name * 1.3);
+    cy += Math.round(T.name * (denseFallback ? 1.1 : 1.3));
     const b = badge(measure, a.state, tx, cy, T.badge);
     ops.push(...b.ops);
-    cy += b.h + 20;
+    cy += b.h + (denseFallback ? 4 : 20);
     // The title wraps onto up to T.taskLines lines at the same size (portrait: 2, ellipsis on the last if it is still
     // too long). Each row is checked against the corner zones separately, so only the rows that reach one are narrower.
     const taskY = cy;
@@ -159,7 +196,7 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
       ? wrapText(a.task, i => rowWidth(frame, tx, taskY + i * taskStep, T.task, inner), T.task, T.taskLines, measure)
       : ['No task'];
     taskLines.forEach((line, i) => ops.push(textOp(measure, line, tx, taskY + i * taskStep, T.task, a.task ? COLORS.text : COLORS.dim, rowWidth(frame, tx, taskY + i * taskStep, T.task, inner))));
-    cy += (taskLines.length - 1) * taskStep + Math.round(T.task * 1.5) + 12; // one line: the same spacing as before
+    cy += (taskLines.length - 1) * taskStep + Math.round(T.task * (denseFallback ? 1.15 : 1.5)) + (denseFallback ? 4 : 12);
     const lh = Math.round(T.log * 1.45);
     // As many of the latest log lines as fit in the tile: a wrapped title leaves room for 3 instead of 4.
     const room = Math.max(0, Math.floor((y + tileH - T.pad - cy) / lh));
@@ -185,6 +222,9 @@ export function layoutFocus(model, measure, frame = LANDSCAPE) {
   const x = left + T.stripe + T.pad;
   const inner = frame.width - safe.side - x - T.pad;
   let y = portrait ? safe.top + 24 : T.pad;
+  const banner = approvalBanner(model, measure, frame, x, y, inner);
+  ops.push(...banner.ops);
+  if (banner.height) y += banner.height + 20;
   const b = badge(measure, a.state, 0, y, T.badge); // measured first: landscape puts the name beside it
   if (portrait) {
     // narrow frame: name, then the badge under it
@@ -254,5 +294,6 @@ export function modelKey(model) {
   const agents = (model.agents ?? []).map(a => ({ id: a.id, name: a.name, color: a.color, state: a.state, task: a.task ?? null, reason: a.state === 'stuck' ? a.stuck_reason ?? null : null }));
   const shown = view === 'focus' ? agents.filter(a => a.id === model.focusId) : agents.slice(0, MAX_TILES);
   const logs = Object.fromEntries(shown.map(a => [a.id, (model.logs?.[a.id] ?? []).slice(-FOCUS.logLines)]));
-  return JSON.stringify({ view, focusId: view === 'focus' ? model.focusId : null, agents: shown, logs });
+  const approvals = (model.approvals ?? []).filter(a => a.status === 'pending').map(a => ({ id: a.id, agent_id: a.agent_id, action: a.action, status: a.status }));
+  return JSON.stringify({ view, focusId: view === 'focus' ? model.focusId : null, agents: shown, logs, approvals });
 }

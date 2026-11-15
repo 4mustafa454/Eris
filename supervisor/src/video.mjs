@@ -76,6 +76,7 @@ export async function startTeamVideo({
         lastFrame = new rtc.VideoFrame(rgba, width, height, rtc.VideoBufferType.RGBA);
       }
       source.captureFrame(lastFrame);
+      loop.markPublished?.();
       sent += 1;
     } catch (error) {
       if (!captureWarned) { captureWarned = true; log.warn(`[eris] video frame not sent: ${error.message}`); }

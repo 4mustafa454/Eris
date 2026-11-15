@@ -45,6 +45,16 @@ export function createHarness({ baseUrl, fetchImpl = fetch, timeoutMs = 3000 }) 
     getAgent: id => request('GET', `/agents/${encodeURIComponent(id)}`),
     getLog: (id, lines = 40) => request('GET', `/agents/${encodeURIComponent(id)}/log?lines=${lines}`),
     getContext: () => request('GET', '/context'),
+    getApprovals: () => request('GET', '/approvals?status=pending'),
+    searchHistory: query => request('GET', `/search?${new URLSearchParams({ q: query })}`),
+    pauseAgent: (id, sessionId) => request('POST', `/agents/${encodeURIComponent(id)}/pause`, { ...(sessionId ? { session_id: sessionId } : {}) }, SLOW_MS),
+    resumeAgent: (id, sessionId) => request('POST', `/agents/${encodeURIComponent(id)}/resume`, { ...(sessionId ? { session_id: sessionId } : {}) }, SLOW_MS),
+    createTask: (title, instruction, agentId, sessionId) => request('POST', '/tasks', {
+      title, instruction, ...(agentId ? { agent_id: agentId } : {}), ...(sessionId ? { session_id: sessionId } : {}),
+    }),
+    decideApproval: (id, decision, sessionId) => request('POST', `/approvals/${encodeURIComponent(id)}`, {
+      decision, ...(sessionId ? { session_id: sessionId } : {}),
+    }),
     // Steering a running worker interrupts it first, and stop-all waits for the interrupt: both can take over 5 s.
     sendTask: (id, instruction, sessionId) =>
       request('POST', `/agents/${encodeURIComponent(id)}/task`, { instruction, ...(sessionId ? { session_id: sessionId } : {}) }, SLOW_MS),

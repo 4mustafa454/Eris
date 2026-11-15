@@ -71,6 +71,10 @@ for (const [orientation, size] of Object.entries(SIZES)) {
   } else {
     for (const [name, m] of Object.entries(MODELS)) {
       await save(`${name}-grid`, { ...m, mode: 'grid', harness: 'ok' });
+      if (name === 'six-states') {
+        await save('six-approval-grid', { ...m, mode: 'grid', harness: 'ok',
+          approvals: [{ id: 'sample-approval', agent_id: 'agent-2', action: 'git_push', status: 'pending' }] });
+      }
       for (const a of m.agents) await save(`${name}-focus-${a.id}`, { ...m, mode: 'focus', focusId: a.id, harness: 'ok' });
     }
     await save('unreachable', { harness: 'unreachable', harnessUrl: 'http://localhost:8787', lastSeen: '19:02:11Z', agents: [], logs: {} });
