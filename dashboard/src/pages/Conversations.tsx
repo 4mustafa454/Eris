@@ -6,6 +6,71 @@ import { useLive } from '../lib/store'
 import { Card, Pending, ago, isPending } from '../lib/ui'
 
 const CHANNEL: Record<string, string> = { facetime: 'Call', web: 'Web', imessage: 'Text' }
+const NEW = '__new'
+const SUGGESTIONS = [
+  { t: 'What is everyone working on?', d: 'One line of status for each agent' },
+  { t: 'Is anything stuck?', d: 'Blockers, silence, loops and crashes' },
+  { t: 'What is agent 2 doing?', d: 'Its task and latest activity' },
+]
+
+/** Start a conversation with the PM through POST /chat (§5.2). The harness creates the session and logs both turns. */
+function NewChat({ onCreated }: { onCreated: (id: string) => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<{ pending: boolean; detail: string } | null>(null)
+  const send = async (t: string) => {
+    const body = t.trim()
+    if (!body || busy) return
+    setBusy(true); setErr(null)
+    try {
+      const r = await chat(body)
+      onCreated(r.session_id)
+    } catch (e) {
+      setErr({ pending: isPending(e), detail: e instanceof HarnessError ? e.detail : '' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col justify-center gap-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-semibold tracking-tight">How is the crew doing?</h2>
+        <p className="mt-2 text-sm text-muted">Ask what the agents are doing, who is in trouble, or what happened on the last call.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {SUGGESTIONS.map((s) => (
+          <button
+            key={s.t}
+            disabled={busy}
+            onClick={() => void send(s.t)}
+            className="rounded-xl border border-line bg-panel p-4 text-left shadow-md shadow-black/20 transition hover:-translate-y-0.5 hover:bg-panel2"
+            style={{ borderTop: '2px solid var(--color-gold)' }}
+          >
+            <span className="block text-sm font-medium">{s.t}</span>
+            <span className="mt-1 block text-xs text-muted">{s.d}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text) } }}
+          rows={2}
+          placeholder="Message the Eris PM. Enter sends, Shift+Enter adds a line."
+          aria-label="New chat message"
+          className="flex-1 resize-none rounded-lg border border-line bg-panel px-3 py-2 text-sm"
+        />
+        <button onClick={() => void send(text)} disabled={busy || !text.trim()} className="self-end rounded-md bg-gold px-4 py-2 text-sm font-medium text-black">
+          {busy ? 'Sending…' : 'Send'}
+        </button>
+      </div>
+      {err && (err.pending
+        ? <Pending what="New chat" route="POST /chat" />
+        : <p className="text-sm text-bad" role="alert">{err.detail || 'That did not send. Try again.'}</p>)}
+    </div>
+  )
+}
 
 function SessionList({ items, sel, onSel }: { items: Session[]; sel: string | null; onSel: (id: string) => void }) {
   return (
@@ -160,6 +225,13 @@ export default function Conversations() {
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
       <aside>
+        <button
+          onClick={() => setSel(NEW)}
+          aria-current={sel === NEW ? 'true' : undefined}
+          className="mb-3 w-full rounded-lg border border-gold/60 px-3 py-2 text-left text-sm font-medium text-gold hover:bg-gold/10"
+        >
+          + New chat
+        </button>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -176,7 +248,9 @@ export default function Conversations() {
         )}
         {!sessions.length && <p className="text-sm text-muted">No conversations yet. Call Eris or open a chat.</p>}
       </aside>
-      <section>{sel ? <Detail id={sel} key={sel} /> : <p className="text-muted">Pick a conversation.</p>}</section>
+      <section>
+        {sel === NEW ? <NewChat key="new" onCreated={setSel} /> : sel ? <Detail id={sel} key={sel} /> : <p className="text-muted">Pick a conversation.</p>}
+      </section>
     </div>
   )
 }
