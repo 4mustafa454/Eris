@@ -185,3 +185,13 @@ def test_the_route_drives_a_real_worker_and_stop_all_interrupts_it(db_file, tmp_
         out = c.post("/stop-all").json()
         assert {a["id"]: a["state"] for a in out}["agent-1"] == "paused"
         assert interrupts and all(p.rc is not None for p in spawn.procs)
+
+
+def test_list_tasks_returns_history_and_filters_by_status(client):
+    all_tasks = client.get('/tasks')
+    assert all_tasks.status_code == 200
+    assert {t['agent_id'] for t in all_tasks.json()} == {'agent-1', 'agent-2', 'agent-3'}
+    done = client.get('/tasks', params={'status': 'done'})
+    assert done.status_code == 200
+    assert all(t['status'] == 'done' for t in done.json())
+    assert {t['agent_id'] for t in done.json()} == {'agent-3'}

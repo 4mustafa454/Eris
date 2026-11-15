@@ -6,7 +6,7 @@ import { armGreeting, resolveGreeting } from './greeting.mjs';
 import { createSessionLogger } from './harness.mjs';
 import { renderPrompt } from './pm-prompt.mjs';
 import { buildTools } from './tools.mjs';
-import { summarizeCall } from './summary.mjs';
+import { summarizeCall, teamSnapshot } from './summary.mjs';
 
 // Roles in the transcript (§4): the framework says "assistant", the harness says "pm".
 const TRANSCRIPT_ROLE = { user: 'user', assistant: 'pm' };
@@ -67,7 +67,14 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, s
     if (!ended) {
       ended = true;
       logger.end();
-      logger.summarize((transcript, actions) => summarizeCall(providers.llm, transcript, actions));
+      logger.summarize(async (transcript, actions) => {
+        const [agentsResult, tasksResult] = await Promise.allSettled([
+          harness.getAgents(), harness.getTasks?.(),
+        ]);
+        const agents = agentsResult.status === 'fulfilled' ? agentsResult.value : null;
+        const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value : null;
+        return summarizeCall(providers.llm, transcript, actions, teamSnapshot(agents, tasks));
+      });
     }
   };
   agentSession.on('close', markEnded); // the caller hung up

@@ -1,6 +1,4 @@
-// The first thing the caller hears. Spoken once, from a template: no LLM call, so it is ready well inside
-// Chert's 10 seconds after bridge_ready (remote_audio_timeout). In M1 the recap is the team's CURRENT state;
-// "what happened last call" arrives with session summaries in M4.
+// The first thing the caller hears. Spoken once, from stored recap and live state, with no greeting-time LLM call.
 import { greetOnBridgeReady } from '../greet.mjs';
 
 export const FALLBACK_GREETING = "Hi, it's Eris. I can't reach the team right now, but I'm here.";
@@ -51,7 +49,9 @@ export function buildGreeting(context) {
 
   const lastCall = (context.recent_summaries ?? []).find(s => s.channel === 'facetime' && s.summary?.trim());
   const recap = lastCall ? [`Last call: ${shorten(lastCall.summary.trim().split(/(?<=[.!?])\s+/)[0], 120)}`] : [];
-  const clauses = [...recap, ...attention, ...working, ...finished, ...paused];
+  const live = [...attention, ...working, ...finished, ...paused];
+  if (recap.length && !live.length) live.push(agents.length ? 'All agents are idle' : 'No agents are running');
+  const clauses = [...recap, ...live];
   if (!clauses.length) return `${PREFIX} ${agents.length ? 'All agents are idle.' : 'No agents are running.'}`;
   const shown = clauses.slice(0, MAX_CLAUSES).map(sentence).join(' ');
   return `${PREFIX} ${shown}${clauses.length > MAX_CLAUSES ? ' Ask me for the rest.' : ''}`;

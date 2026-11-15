@@ -41,6 +41,7 @@ export function createHarness({ baseUrl, fetchImpl = fetch, timeoutMs = 3000 }) 
 
   return {
     getAgents: () => request('GET', '/agents'),
+    getTasks: () => request('GET', '/tasks'),
     getAgent: id => request('GET', `/agents/${encodeURIComponent(id)}`),
     getLog: (id, lines = 40) => request('GET', `/agents/${encodeURIComponent(id)}/log?lines=${lines}`),
     getContext: () => request('GET', '/context'),

@@ -11,6 +11,7 @@ from .routes import agents as agents_routes
 from .routes import context as context_routes
 from .routes import sessions as sessions_routes
 from .routes import events as events_routes
+from .routes import tasks as tasks_routes
 from .workers import mock
 from .workers.manager import WorkerManager
 
@@ -61,3 +62,4 @@ app.include_router(agents_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(context_routes.router)
 app.include_router(events_routes.router)
+app.include_router(tasks_routes.router)

@@ -307,3 +307,31 @@ test('a video that fails to stop cannot break shutdown', async () => {
   await ctx.runShutdown();
   assert.equal(harness.calls.filter(c => c[0] === 'end').length, 2, 'the session was ended and summarized');
 });
+
+test('hangup summary uses the latest harness snapshot and task history', async () => {
+  const harness = fakeHarness();
+  const snapshots = [
+    { id: 'agent-1', name: 'Agent 1', state: 'done', task: 'Use v2' },
+    { id: 'agent-2', name: 'Agent 2', state: 'idle', task: null },
+    { id: 'agent-3', name: 'Agent 3', state: 'working', task: 'Billing tests' },
+  ];
+  harness.getAgents = async () => snapshots;
+  harness.getTasks = async () => [{ agent_id: 'agent-2', title: 'Write docs', status: 'done', created_at: '2026-11-15T00:00:00Z' }];
+  const patches = [];
+  harness.patchSession = async (_id, fields) => patches.push(fields);
+  const { ctx, session } = await start({ harness });
+  let prompt;
+  session.options.llm.chat = ({ chatCtx }) => {
+    prompt = chatCtx.items[1].textContent;
+    return { collect: async () => ({ text: 'The user selected v2.' }), close() {} };
+  };
+  session.item('user', 'Use v2');
+  await ctx.runShutdown();
+  assert.match(prompt, /Agent 1: done; task: Use v2/);
+  assert.match(prompt, /Agent 2: idle; task: Write docs/);
+  assert.match(prompt, /Agent 3: working; task: Billing tests/);
+  const summary = patches.find(p => p.summary)?.summary;
+  assert.match(summary, /Agent 1 is done with Use v2/);
+  assert.match(summary, /Agent 2 is idle, last task Write docs/);
+  assert.match(summary, /Agent 3 is working on Billing tests/);
+});

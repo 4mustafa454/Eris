@@ -184,3 +184,21 @@ test('greets with the most recent stored FaceTime summary and current state', ()
   assert.match(greeting, /Agent 1/);
   assert.doesNotMatch(greeting, /Web discussion/);
 });
+
+test('stored recap is followed by live idle status', () => {
+  const context = ctx([agent(1, { state: 'idle' })], { recent_summaries: [
+    { channel: 'facetime', summary: 'The user picked v2. Agent 1 was working.' },
+  ] });
+  assert.equal(buildGreeting(context), "Hi, it's Eris. Last call: The user picked v2. All agents are idle.");
+});
+
+test('recap uses the latest call while the status comes from the fresh snapshot', () => {
+  const fresh = ctx([agent(1, { state: 'done', task: 'Use v2' })], { recent_summaries: [
+    { channel: 'facetime', summary: 'Agent 1 was working on v2. The user approved it.' },
+    { channel: 'facetime', summary: 'Older call.' },
+  ] });
+  const greeting = buildGreeting(fresh);
+  assert.match(greeting, /Last call: Agent 1 was working on v2\./);
+  assert.match(greeting, /Agent 1 finished "Use v2"/);
+  assert.doesNotMatch(greeting, /Older call/);
+});
