@@ -39,7 +39,7 @@ function Field({ k, v, onSave }: { k: string; v: unknown; onSave: (k: string, va
         autoComplete="off" placeholder={shown}
         className="rounded-lg border border-line bg-bg px-3 py-1.5 text-sm"
       />
-      <button disabled={busy || !val} className="rounded-md bg-fg px-3 py-1.5 text-sm font-medium text-black">Save</button>
+      <button disabled={busy || !val} className="rounded-md bg-gold px-3 py-1.5 text-sm font-medium text-black">Save</button>
     </form>
   )
 }

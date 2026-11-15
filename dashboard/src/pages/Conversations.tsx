@@ -107,7 +107,7 @@ function Detail({ id }: { id: string }) {
       <div ref={end} />
       <div className="sticky bottom-0 mt-auto border-t border-line bg-bg pt-3">
         {!continuing ? (
-          <button onClick={() => setContinuing(true)} className="rounded-md bg-fg px-4 py-2 text-sm font-medium text-black">
+          <button onClick={() => setContinuing(true)} className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-black">
             Continue this conversation
           </button>
         ) : (
@@ -122,7 +122,7 @@ function Detail({ id }: { id: string }) {
                 aria-label="Follow-up message"
                 className="flex-1 resize-none rounded-lg border border-line bg-panel px-3 py-2 text-sm"
               />
-              <button onClick={send} disabled={busy || !text.trim()} className="self-end rounded-md bg-fg px-4 py-2 text-sm font-medium text-black">
+              <button onClick={send} disabled={busy || !text.trim()} className="self-end rounded-md bg-gold px-4 py-2 text-sm font-medium text-black">
                 {busy ? 'Sending…' : 'Send'}
               </button>
             </div>

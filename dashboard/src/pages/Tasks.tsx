@@ -57,7 +57,7 @@ function AgentControl({ a }: { a: AgentState }) {
         <input value={text} onChange={(e) => setText(e.target.value)} aria-label={`Instruction for ${a.name}`}
           placeholder={live ? 'Steer the current task, e.g. "use the v2 endpoint"' : 'Start a new task for this agent'}
           className="flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm" />
-        <button disabled={busy || !text.trim()} className="rounded-md bg-fg px-3 py-1.5 text-sm font-medium text-black">
+        <button disabled={busy || !text.trim()} className="rounded-md bg-gold px-3 py-1.5 text-sm font-medium text-black">
           {live ? 'Steer' : 'Start'}
         </button>
       </form>
@@ -128,7 +128,7 @@ function NewTask({ agents }: { agents: AgentState[] }) {
           <option value="">Any agent</option>
           {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        <button disabled={busy || !title.trim() || !instruction.trim()} className="rounded-md bg-fg px-4 py-1.5 text-sm font-medium text-black">Add</button>
+        <button disabled={busy || !title.trim() || !instruction.trim()} className="rounded-md bg-gold px-4 py-1.5 text-sm font-medium text-black">Add</button>
       </div>
       <NoteView n={note} />
     </form>
