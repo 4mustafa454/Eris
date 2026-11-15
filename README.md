@@ -4,6 +4,14 @@
 
 Built for HackUTA 2026 (Chert track).
 
+> **About the demo.** Eris is a working proof of concept, and the agents in it are real: set `REAL_WORKERS=agent-1,agent-3` and
+> Claude Code and Codex run in sandboxed Docker containers against a real repo. Their `BLOCKED:` and `APPROVAL:` signals drive the
+> same stuck and approval states you see on the call, and we exercised that path end to end during development (real Claude Code
+> and Codex tasks, stuck detection, voice steering and call recaps). Real agents take minutes to reach a given state, so for a timed recording we drove the grid
+> with mock agents (`MOCK_TICK=1`) and a seeded approval (`scripts/seed-demo.sh --with-approval=agent-2`) to bring each state up on
+> cue. Everything else in the video is live: the voice call, the PM's reasoning and tool calls, the rendered video frame, the dashboard
+> and the alerts.
+
 Eris runs three headless coding agents in Docker and puts a **PM agent** in front of them. You reach the PM by FaceTime
 video, text, or the web dashboard. On a FaceTime call, the PM's outgoing video is a live view of your whole team.
 
