@@ -133,14 +133,6 @@ using [docs/DEMO.md](docs/DEMO.md).
 | `demo-template/` | source for the demo repo the workers edit (`scripts/make-demo-repo.sh` builds `demo-repo/`) |
 | `docs/` | demo runbook and Devpost write-up |
 
-## Team
-
-| Name | Role | Links |
-|---|---|---|
-| _Your name_ | _e.g. supervisor / voice_ | _GitHub_ |
-| _Your name_ | _e.g. harness / workers_ | _GitHub_ |
-| _Your name_ | _e.g. dashboard / design_ | _GitHub_ |
-
 ## License
 
 [MIT](LICENSE)
