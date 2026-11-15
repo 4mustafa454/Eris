@@ -1,0 +1,12 @@
+
+this is a plain text line from stderr, not JSON
+{ not valid json
+[1, 2, 3]
+{"type": "system", "subtype": "hook_started", "session_id": "8c1f6a52-3b7e-4f0a-9d44-2f5d6e1b7a90"}
+{"type": "stream_event", "event": {"type": "content_block_delta"}}
+{"type": "brand_new_event_type", "payload": {"x": 1}}
+{"type": "assistant", "message": {"content": "not a list"}}
+{"type": "assistant", "message": {"content": [null, 5, {"type": "mystery"}, {"type": "tool_use"}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "never-seen", "is_error": true, "content": "x"}]}}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_x", "name": "mcp__github__create_issue", "input": {"title": "t"}}]}}
+{"type": "result", "subtype": "success", "is_error": false, "duration_ms": 41200, "duration_api_ms": 38800, "num_turns": 1, "result": "Nothing to do.", "session_id": "8c1f6a52-3b7e-4f0a-9d44-2f5d6e1b7a90", "total_cost_usd": 0.0731, "usage": {"input_tokens": 120, "output_tokens": 540}}
