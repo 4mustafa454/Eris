@@ -4,7 +4,7 @@ send_task (POST /agents/{id}/task), per AGENTS.md §5.2.1:
   - the agent has a working/stuck task  → STEER: same task row, same engine session (`--resume`). A run in progress is
     interrupted first (inside the container), then resumed with the new instruction.
   - otherwise                           → NEW task: starts now, fresh session.
-A run's stream becomes events.line entries; its final result decides done / stuck (BLOCKED:, max turns) / error.
+A run's stream becomes events.line entries; its final result decides done / stuck (BLOCKED:, APPROVAL:, max turns) / error.
 When a task finishes, the agent's next queued task starts by itself.
 
 Everything outside the DB is injected (container, process spawner, clock), so tests replay recorded streams with no Docker.
@@ -15,7 +15,7 @@ import uuid
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
-from .. import agents, db, sessions, tasks
+from .. import agents, approvals, db, sessions, tasks
 from ..config import Settings, secret_values
 from . import docker
 from .stream import MAX_LINE, StreamParser, CodexStreamParser
@@ -422,7 +422,7 @@ class WorkerManager:
             if run.stopped:
                 return
             result = run.parser.finish(exit_code)
-            if run.stuck_reason:
+            if run.stuck_reason and result.kind != "approval":
                 from .stream import Result
                 result = Result("blocked", reason=run.stuck_reason)
             if result.kind == "error" and run.parser.result is None and stderr_tail.strip():
@@ -513,6 +513,8 @@ class WorkerManager:
                     conn.execute("UPDATE agents SET engine_session = NULL WHERE id = ?", (agent_id,))
                     row = conn.execute("SELECT instruction FROM tasks WHERE id = ?", (started[0],)).fetchone()
                     return row["instruction"]
+            elif result.kind == "approval":
+                approvals.create_approval(conn, agent_id, result.reason)
             elif result.kind == "blocked":
                 tasks.set_state(conn, agent_id, "stuck", _cut(f"Blocked: {result.reason}"), result.reason, now)
                 agents.add_event(conn, agent_id, "stuck", _cut(f"BLOCKED: {result.reason}"))

@@ -30,6 +30,20 @@ CPUS = "2"
 _HELPERS = ("ps -eo", "pkill", "pgrep", "kill -KILL")
 
 
+WORKER_RULES = (
+    'Before any git push, deleting files outside the repo, or installing dependencies, '
+    'end your reply with one line starting "APPROVAL: <action>" (replace <action> with the specific action) '
+    'and stop without performing it. Wait for an explicit approval before proceeding with that action. '
+    'Use "git_push" for a git push request. If denied, follow the denial instruction. '
+    'For other blockers, end your reply with "BLOCKED: <question>" and stop.'
+)
+
+
+def worker_prompt(instruction: str) -> str:
+    """Supply the same approval protocol to both engines, including resumed runs."""
+    return f"{WORKER_RULES}\n\nTask / follow-up:\n{instruction}"
+
+
 class WorkerError(Exception):
     """A real worker cannot run (no container, no demo repo, docker failed). The message is safe to show."""
 
@@ -74,6 +88,7 @@ def create_argv(agent_id: str, settings: Settings, uid: int, gid: int) -> list[s
 
 def exec_argv(agent_id: str, settings: Settings, instruction: str, resume: str | None = None) -> list[str]:
     """One claude run: `docker exec` + `claude -p …`. The instruction is ONE argv element after `--`."""
+    instruction = worker_prompt(instruction)
     if settings.engine_for(agent_id) == "codex":
         argv = ["docker", "exec", "-i", "--workdir", WORKSPACE, container_name(agent_id), "codex", "exec",
                 "--sandbox", "danger-full-access"]

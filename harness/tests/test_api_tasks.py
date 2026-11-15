@@ -9,6 +9,7 @@ from app import db, tasks
 from app.config import Settings
 from app.main import app
 from app.models import AgentState
+from app.workers.docker import worker_prompt
 from app.workers.manager import WorkerManager
 
 from fakes import FakeContainer, FakeSpawn
@@ -181,7 +182,7 @@ def test_the_route_drives_a_real_worker_and_stop_all_interrupts_it(db_file, tmp_
             if spawn.argvs:
                 break
             time.sleep(0.01)
-        assert spawn.argvs[0][-2:] == ["--", "Run the tests and fix the failing one"] and "--resume" not in spawn.argvs[0]
+        assert spawn.argvs[0][-2:] == ["--", worker_prompt("Run the tests and fix the failing one")] and "--resume" not in spawn.argvs[0]
         out = c.post("/stop-all").json()
         assert {a["id"]: a["state"] for a in out}["agent-1"] == "paused"
         assert interrupts and all(p.rc is not None for p in spawn.procs)
