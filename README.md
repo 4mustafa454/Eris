@@ -1,71 +1,117 @@
-# Starter voice agent
+# Eris
 
-A voice agent you can call on FaceTime through Chert. It is a standalone Node
-application built on LiveKit Agents 1.8.0 and the OpenAI Realtime model. Node 22.23.2 or later is supported; **Node 24 is recommended** (Node 26 can fail to load LiveKit's native bindings).
+**Mission control for your team of coding agents — watch them work and talk to them face to face over FaceTime.**
 
-## Requirements
-- **Node 24** (see above) and npm.
-- **The `chert` CLI** and your own Chert account (the line is yours, it does not carry over from anyone else):
-  ```sh
-  npm install -g @trychert/facetime@0.1.0-beta.21   # or run it with: npx --yes @trychert/facetime@0.1.0-beta.21 <command>
-  chert login
-  ```
-- **A LiveKit Cloud project** (URL, API key, API secret from the same project) and an **OpenAI API key** with Realtime access and credits. Keys go in `.env.local`, never in git.
-- **Callers need FaceTime** (an Apple device). The agent itself is plain Node and runs on your machine; Chert's own Mac answers the call and bridges it to your agent.
-- **One agent name everywhere.** `AGENT_NAME` in `.env.local` must match what the agent registers with LiveKit and what you pass to `chert dev --agent` (this repo uses `my_agent`). A mismatch makes `chert doctor` say the agent "did not join".
+Built for HackUTA 2026 (Chert track).
 
-## Run it
+Eris runs three headless coding agents in Docker and puts a **PM agent** in front of them. You reach the PM by FaceTime
+video, text, or the web dashboard. On a FaceTime call, the PM's outgoing video is a live view of your whole team.
 
-1. Install it:
-   ```sh
-   npm install
-   ```
-2. Create your private env file, then replace each `YOUR_` placeholder in it:
-   ```sh
-   cp .env.example .env.local && chmod 600 .env.local
-   ```
-   The three LiveKit values come from one LiveKit Cloud project (Settings, API
-   keys). The OpenAI key needs Realtime access and credits. Set `AGENT_NAME` to a
-   name no other team uses.
-3. Terminal 1, your agent:
-   ```sh
-   npm start
-   ```
-4. Terminal 2, in this same folder, puts the agent on your FaceTime line:
-   ```sh
-   chert login     # once per computer
-   chert dev
-   ```
-   `chert dev` reads the LiveKit values and `AGENT_NAME` from `.env.local`.
-5. When `chert dev` says your agent is in a waiting room, make a **FaceTime Audio**
-   call to the line it shows. The agent greets you as soon as FaceTime is ready.
+## What it does
 
-`chert doctor` checks sign-in, keys, the line and the Mac behind it.
-`chert doctor --agent NAME` also sends the agent a real test job.
+- **Call in on FaceTime Video.** The PM greets you with a recap of the last call and what needs attention, then you see a live
+  grid of three worker agents (state, task, latest activity). "Show me agent 2" switches to a full-screen view of that agent.
+- **Talk to the team.** Ask for status, tell an agent what to do ("tell agent 1 to use the v2 endpoint"), pause or resume an agent,
+  create tasks, search past conversations, and stop everything with one phrase.
+- **Get alerted when a worker is stuck.** The harness texts you (ntfy, and iMessage with a picture of the grid) and can call
+  you on FaceTime; the call opens with the reason.
+- **Approve risky actions by voice.** A worker that wants to `git push` stops and asks; nothing is pushed until you say yes.
+- **Continue anywhere.** Every call and chat is saved with transcript, actions and a summary. The PM remembers recent calls, and the
+  dashboard can resume any conversation in a chat panel that uses the same PM brain.
+- **Dashboard** (Live, Conversations, Tasks with approvals, Settings with provider tests), served on `localhost:5173`.
 
-## Change it
+## Architecture
 
-Edit `instructions` and `greeting` at the top of `agent.mjs`. Keep the greeting
-to one short sentence. There is no automatic reload: end
-the call, stop `chert dev` with Ctrl+C, restart `npm start`, then run `chert dev`
-again. Otherwise a waiting room can still hold the old code.
+```mermaid
+flowchart LR
+    phone["iPhone<br/>FaceTime Video / iMessage"] <--> chert["Chert line<br/>(chert dev, Calls API, Messaging API)"]
+    chert <--> lk["LiveKit room<br/>(one agent participant)"]
+    lk <--> sup["supervisor/<br/>STT, PM LLM, TTS,<br/>grid renderer → camera track"]
+    sup -- "PM tools (HTTP)" --> har["harness/<br/>FastAPI + SQLite"]
+    har <--> w1["Docker worker<br/>agent-1 · Claude Code"]
+    har <--> w2["Docker worker<br/>agent-2 · Claude Code"]
+    har <--> w3["Docker worker<br/>agent-3 · Codex"]
+    dash["dashboard/<br/>Vite + React"] -- "HTTP / SSE" --> har
+    dash -. "frame.jpg" .-> sup
+    har -- "alerts: ntfy, iMessage, outbound call" --> chert
+    pm["shared/pm/<br/>system prompt + tools"] -.-> sup
+    pm -.-> har
+```
 
-## What it does and does not do
+- **One PM brain.** Voice (supervisor) and web chat (`/chat` in the harness) load the same `shared/pm/system_prompt.md` and
+  `shared/pm/tools.json`, call the same harness routes, and log to the same tables.
+- **One video track.** Chert allows one agent participant per room, so worker screens are drawn into the supervisor's single camera
+  track (and mirrored at `:8788/frame.jpg` for the dashboard).
+- **Workers are sandboxed.** Each runs in its own Docker container as a non-root user with only the demo repo mounted. Workers commit
+  locally and have no push credentials; a push goes through an approval.
+- The contract between the parts (schema, HTTP API, PM tools) is in [AGENTS.md](AGENTS.md).
 
-- It joins the room Chert prepares, waits for the caller, then opens one model
-  session. Chert removes the room after the call.
-- It greets once, when `chert dev` writes `"chert_bridge_ready": true` into the
-  room metadata (`greet.mjs`): the Mac ends a call that hears nothing from the
-  agent within 10 seconds of FaceTime being ready (`remote_audio_timeout`). It
-  never greets just because the caller joined. Without the signal it does not
-  greet, and you speak first.
-- It publishes audio only. Video, avatars and outbound calls are not part of it.
-- The waiting room shows that the agent joined LiveKit. It does not verify the
-  model key or the media path. The first call does.
-- Two credentials do different jobs. `chert login` lets this computer use your
-  Chert project. `.env.local` lets the agent and `chert dev` use your LiveKit
-  project, and the agent use the model. Never commit or share `.env.local`.
-- LiveKit and model usage may cost money.
+## How Chert is used
 
-References: [LiveKit named dispatch](https://docs.livekit.io/agents/server/agent-dispatch/)
-and the [OpenAI Realtime plugin](https://docs.livekit.io/agents/models/realtime/plugins/openai/).
+| Piece | What Eris does with it |
+|---|---|
+| **Inbound FaceTime** | `chert dev` connects the supervisor to a Chert line. A FaceTime Video call arrives as a LiveKit room; the supervisor greets once when Chert reports `bridge_ready` and publishes both its voice and the team grid as one camera track. |
+| **Outbound calls** | When a worker is stuck and alerts are set to call, the harness creates a LiveKit room, dispatches the supervisor into it, and places the call through Chert's Calls API (`customer_managed` mode). The greeting leads with the reason. |
+| **iMessage alerts** | The harness sends the alert text through Chert's Messaging API, with the current frame from `:8788/frame.jpg` attached when available. |
+
+The outbound call and iMessage paths are covered by tests with the HTTP calls mocked. They have not been exercised against a live
+Chert line in this repo's tests; `docs/DEMO.md` has the one-command checks to run before relying on them.
+
+## Quickstart
+
+Needs Docker, Python 3.11+, Node 24 (not 26), the `chert` CLI, and API keys: Deepgram (speech), OpenAI (the PM), a LiveKit project, and
+a Claude Code token for real workers. The full rehearsal runbook is [docs/DEMO.md](docs/DEMO.md).
+
+```sh
+# 1. Configure (never commit these; every variable is listed, values blank)
+cp harness/.env.example harness/.env
+cp supervisor/.env.example supervisor/.env.local
+
+# 2. Worker images and the demo repo the agents work on
+scripts/build-worker.sh && scripts/build-codex-worker.sh && scripts/make-demo-repo.sh
+
+# 3. Start things, each in its own terminal
+cd harness && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/uvicorn app.main:app --port 8787
+cd supervisor && npm install && npm start          # the PM; serves :8788/frame.jpg during a call
+cd supervisor && chert login && chert dev --json    # puts the supervisor on your FaceTime line; wait for agent_warm
+cd dashboard && npm install && npm run dev          # http://localhost:5173
+```
+
+With no `REAL_WORKERS` set, the three agents are mocks, so you can try the PM, the grid and the dashboard without Docker or worker keys.
+Try the voice side without a phone in LiveKit's Agent Console (set `GREET_ON_JOIN=1` in `supervisor/.env.local`; do not run `chert dev`).
+Real FaceTime calls need a Chert line, and the free trial is capped at 5 minutes per call.
+
+## Tests
+
+| Part | Command | Result when this was written |
+|---|---|---|
+| Harness | `cd harness && .venv/bin/pytest -q` | 335 passed |
+| Supervisor | `cd supervisor && npm test` | 266 passed |
+| Dashboard | `cd dashboard && npm run typecheck` | type-checks clean (no unit tests) |
+
+The tests mock all network access: no model, Chert, LiveKit or Docker call is made. Real-worker runs and live calls are checked by hand
+using [docs/DEMO.md](docs/DEMO.md).
+
+## Repo layout
+
+| Path | What it is |
+|---|---|
+| `shared/pm/` | PM system prompt and tool schemas, used by voice and web |
+| `supervisor/` | the PM on calls: LiveKit/Chert voice agent and the grid/focus renderer |
+| `harness/` | FastAPI API, SQLite, worker control, stuck detection, alerts, web chat |
+| `workers/` | Dockerfiles for the Claude Code and Codex workers |
+| `dashboard/` | web UI (talks only to the harness) |
+| `demo-template/` | source for the demo repo the workers edit (`scripts/make-demo-repo.sh` builds `demo-repo/`) |
+| `docs/` | demo runbook and Devpost write-up |
+
+## Team
+
+| Name | Role | Links |
+|---|---|---|
+| _Your name_ | _e.g. supervisor / voice_ | _GitHub_ |
+| _Your name_ | _e.g. harness / workers_ | _GitHub_ |
+| _Your name_ | _e.g. dashboard / design_ | _GitHub_ |
+
+## License
+
+[MIT](LICENSE)
