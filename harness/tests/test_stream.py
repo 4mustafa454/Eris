@@ -308,3 +308,32 @@ def test_summaries_are_plain_text_because_the_pm_reads_them_aloud():
     assert u.summary == "I fixed signup()."
     r = StreamParser().feed(final("Added **validation** to `signup()`.")).result
     assert r.summary == "Added validation to signup()."
+
+
+def test_tool_names_match_case_insensitively():
+    assert lines_of(use("a", "bash", command="ls -la"), use("b", "BASH", command="git commit -m x"), use("c", "read", file_path="/workspace/a.py"),
+                    use("d", "todowrite", todos=[])) == ["run ls -la", "git commit", "read a.py"]
+    p = StreamParser()
+    assert p.feed(asst(use("t", "bash", command="pytest -q"))).lines == []  # a lowercase bash running pytest is still held for its outcome
+    assert p.feed(result_event("t", "3 passed in 0.1s")).lines == ["run pytest → 3 passed"]
+    p.feed(asst(use("e", "edit", file_path="/workspace/a.py")))
+    assert p.feed(result_event("e", "nope", err=True)).lines == ["edit → error"]
+
+
+# --- REAL streams captured from the worker container (Claude Code 2.1.316), token never present ----------------------
+
+def test_a_real_interrupted_run_has_lines_but_no_result():
+    p, updates, lines = run("interrupted_run_real")
+    assert lines == ["run pytest → 6 passed"], "real pytest output is parsed into its outcome"
+    assert p.session_id and all(u.alive for u in updates)
+    r = p.finish(130)  # the harness ignores this for a run it stopped; as a plain end of stream it is an error
+    assert r.kind == "error" and "exit code 130" in r.reason and p.result is None
+
+
+def test_a_real_completed_run_ends_done_with_a_plain_summary():
+    p, updates, lines = run("steered_run_real")
+    assert lines == ["run cat tests/test_billing.py tests/conftest.py", "git commit"]
+    r = p.finish(0)
+    assert r.kind == "done" and r.summary == "I added four billing tests, and all 10 tests pass."
+    assert "rate_limit_event" in (FIXTURES / "steered_run_real.jsonl").read_text(), "unknown real event types are in the stream and ignored"
+    assert [u for u in updates if u.lines or u.summary or u.result] and not any(u.result for u in updates[:-1])

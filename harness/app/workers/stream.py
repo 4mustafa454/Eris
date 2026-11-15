@@ -183,7 +183,7 @@ class StreamParser:
             return
         name = str(block["name"])
         inp = block.get("input") if isinstance(block.get("input"), dict) else {}
-        deferred = name == "Bash" and bool(_PYTEST.search(str(inp.get("command", ""))))
+        deferred = name.lower() == "bash" and bool(_PYTEST.search(str(inp.get("command", ""))))
         if isinstance(block.get("id"), str):
             self._pending[block["id"]] = {"name": name, "input": inp, "deferred": deferred}
         if deferred:
@@ -204,7 +204,7 @@ class StreamParser:
                 continue
             if use["deferred"]:
                 out.lines.append(f"run pytest → {_pytest_outcome(_tool_text(block.get('content')))}")
-            elif block.get("is_error") and use["name"] != "TodoWrite":
+            elif block.get("is_error") and use["name"].lower() != "todowrite":
                 out.lines.append(f"{self._short_name(use['name'])} → error")
 
     @staticmethod
@@ -212,23 +212,24 @@ class StreamParser:
         return name.split("__")[-1].lower()
 
     def _describe(self, name: str, inp: dict) -> str | None:
+        kind = name.lower()  # tool names are matched case-insensitively
         path = _relative(str(inp.get("file_path") or inp.get("path") or ""))
-        if name == "Bash":
+        if kind == "bash":
             cmd = _clean(str(inp.get("command", "")))
             return "git commit" if _GIT_COMMIT.search(cmd) else f"run {cmd}"
-        if name in ("Edit", "MultiEdit", "NotebookEdit"):
+        if kind in ("edit", "multiedit", "notebookedit"):
             return f"edit {path}".strip()
-        if name == "Write":
+        if kind == "write":
             return f"write {path}".strip()
-        if name == "Read":
+        if kind == "read":
             return f"read {path}".strip()
-        if name == "Grep":
+        if kind == "grep":
             return f"grep {inp.get('pattern', '')}".strip()
-        if name == "Glob":
+        if kind == "glob":
             return f"find {inp.get('pattern', '')}".strip()
-        if name == "LS":
+        if kind == "ls":
             return f"ls {path}".strip()
-        if name == "TodoWrite":
+        if kind == "todowrite":
             return None
         return self._short_name(name)
 
