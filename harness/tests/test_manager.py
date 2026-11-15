@@ -584,3 +584,35 @@ def test_three_matching_test_failures_interrupt_the_worker(world):
         assert "three consecutive" in state()["stuck_reason"]
         assert proc.rc == 130
     arun(main())
+
+
+def test_pause_interrupts_real_run_and_resume_keeps_saved_session(world):
+    async def main():
+        m = world.manager
+        await m.send_task('agent-1', 'work')
+        await until(lambda: bool(world.spawn.procs))
+        world.spawn.procs[0].say(*fixture('done_after_fix')[:1])
+        await until(lambda: session() is not None)
+        thread = session()
+        before = task_rows()[0]['id']
+        assert (await m.pause('agent-1'))['state'] == 'paused'
+        assert world.spawn.procs[0].rc == 130
+        assert (await m.resume('agent-1'))['state'] == 'working'
+        await until(lambda: len(world.spawn.procs) == 2)
+        assert thread in world.spawn.argvs[-1] and '--resume' in world.spawn.argvs[-1]
+        assert task_rows()[0]['id'] == before
+        await m.stop_all()
+    arun(main())
+
+
+def test_resume_without_a_saved_real_session_is_refused(world):
+    from app.workers.manager import ResumeUnavailable
+    async def main():
+        m = world.manager
+        await m.send_task('agent-1', 'work')
+        await until(lambda: bool(world.spawn.procs))
+        await m.pause('agent-1')
+        with pytest.raises(ResumeUnavailable):
+            await m.resume('agent-1')
+        assert state()['state'] == 'paused' and len(world.spawn.procs) == 1
+    arun(main())

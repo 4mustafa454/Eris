@@ -5,10 +5,41 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import agents, sessions
 from ..deps import get_conn, get_manager
-from ..models import AgentState, LogResponse, TaskInstruction
-from ..workers.manager import UnknownAgent
+from ..models import AgentState, LogResponse, SessionRef, TaskInstruction
+from ..workers.manager import ResumeUnavailable, UnknownAgent
 
 router = APIRouter()
+
+
+async def _change_pause(agent_id, body, conn, manager, *, resume):
+    if agents.get_agent(conn, agent_id) is None:
+        raise HTTPException(404, f"unknown agent: {agent_id}")
+    if body.session_id is not None and sessions.get_session(conn, body.session_id) is None:
+        raise HTTPException(404, f"unknown session: {body.session_id}")
+    try:
+        state = await (manager.resume(agent_id) if resume else manager.pause(agent_id))
+    except ResumeUnavailable as error:
+        raise HTTPException(409, str(error)) from None
+    except UnknownAgent:
+        raise HTTPException(404, f"unknown agent: {agent_id}") from None
+    if body.session_id is not None:
+        match = re.search(r'(\d+)$', agent_id)
+        args = {'n': int(match.group(1))} if match else {}
+        sessions.add_action(conn, body.session_id, 'resume_agent' if resume else 'pause_agent', args,
+                            {'state': state['state']}, agent_id)
+    return state
+
+
+@router.post('/agents/{agent_id}/pause', response_model=AgentState)
+async def pause_agent(agent_id: str, body: SessionRef = SessionRef(), conn: sqlite3.Connection = Depends(get_conn),
+                      manager=Depends(get_manager)):
+    return await _change_pause(agent_id, body, conn, manager, resume=False)
+
+
+@router.post('/agents/{agent_id}/resume', response_model=AgentState)
+async def resume_agent(agent_id: str, body: SessionRef = SessionRef(), conn: sqlite3.Connection = Depends(get_conn),
+                       manager=Depends(get_manager)):
+    return await _change_pause(agent_id, body, conn, manager, resume=True)
 
 
 @router.get("/agents", response_model=list[AgentState])

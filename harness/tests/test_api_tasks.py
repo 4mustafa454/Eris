@@ -195,3 +195,19 @@ def test_list_tasks_returns_history_and_filters_by_status(client):
     assert done.status_code == 200
     assert all(t['status'] == 'done' for t in done.json())
     assert {t['agent_id'] for t in done.json()} == {'agent-3'}
+
+
+def test_pause_resume_preserves_mock_task_and_logs_actions_once(client, sid):
+    before = agent(client, 'agent-1')
+    paused = client.post('/agents/agent-1/pause', json={'session_id': sid})
+    assert paused.status_code == 200 and paused.json()['state'] == 'paused'
+    assert paused.json()['task'] == before['task']
+    resumed = client.post('/agents/agent-1/resume', json={'session_id': sid})
+    assert resumed.status_code == 200 and resumed.json()['state'] == 'working'
+    assert resumed.json()['task'] == before['task']
+    assert [a['tool'] for a in client.get(f'/sessions/{sid}').json()['actions']] == ['pause_agent', 'resume_agent']
+
+
+def test_pause_resume_rejects_unknown_session_or_agent(client):
+    assert client.post('/agents/agent-9/pause', json={}).status_code == 404
+    assert client.post('/agents/agent-1/resume', json={'session_id': 'missing'}).status_code == 404

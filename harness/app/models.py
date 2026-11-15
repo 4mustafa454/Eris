@@ -102,6 +102,10 @@ class TaskInstruction(BaseModel):  # POST /agents/{id}/task (§5.2)
         return value
 
 
+class SessionRef(BaseModel):
+    session_id: str | None = None
+
+
 class SessionCreate(BaseModel):
     channel: Channel
 

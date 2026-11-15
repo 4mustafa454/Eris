@@ -28,6 +28,10 @@ class UnknownAgent(KeyError):
     pass
 
 
+class ResumeUnavailable(Exception):
+    pass
+
+
 def _cut(text: str, limit: int = MAX_LINE) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
@@ -80,6 +84,56 @@ class WorkerManager:
     async def send_task(self, agent_id: str, instruction: str) -> dict:
         """Steer the agent's current task, or start a new one. Returns the AgentState dict."""
         return (await self.send(agent_id, instruction))[0]
+
+    async def pause(self, agent_id: str) -> dict:
+        async with self._lock(agent_id):
+            conn = db.connect()
+            try:
+                agent = agents.get_agent(conn, agent_id)
+            finally:
+                conn.close()
+            if agent is None:
+                raise UnknownAgent(agent_id)
+            if agent['state'] in ('working', 'stuck', 'error'):
+                if self.is_real(agent_id):
+                    await self._stop_run(agent_id)
+                def write(conn, now):
+                    tasks.set_state(conn, agent_id, 'paused', 'Paused by user', None, now)
+                    agents.add_event(conn, agent_id, 'state_changed', 'paused')
+                self._tx(write)
+            conn = db.connect()
+            try:
+                return agents.get_agent(conn, agent_id)
+            finally:
+                conn.close()
+
+    async def resume(self, agent_id: str) -> dict:
+        async with self._lock(agent_id):
+            conn = db.connect()
+            try:
+                agent = agents.get_agent(conn, agent_id)
+                if agent is None:
+                    raise UnknownAgent(agent_id)
+                live = tasks.has_live_task(conn, agent_id)
+                row = conn.execute('SELECT engine_session FROM agents WHERE id = ?', (agent_id,)).fetchone()
+                engine_session = row['engine_session']
+            finally:
+                conn.close()
+            if agent['state'] == 'paused':
+                if live and self.is_real(agent_id) and not engine_session:
+                    raise ResumeUnavailable('worker has no saved session to resume')
+                def write(conn, now):
+                    next_state = 'working' if live else 'idle'
+                    tasks.set_state(conn, agent_id, next_state, 'Resumed by user', None, now)
+                    agents.add_event(conn, agent_id, 'state_changed', 'resumed')
+                self._tx(write)
+                if live and self.is_real(agent_id):
+                    self._start_run(agent_id, 'Continue the current task.', engine_session)
+            conn = db.connect()
+            try:
+                return agents.get_agent(conn, agent_id)
+            finally:
+                conn.close()
 
     async def send(self, agent_id: str, instruction: str) -> tuple[dict, str]:
         """Like send_task, and also says what happened: (AgentState dict, 'steer' | 'new')."""
