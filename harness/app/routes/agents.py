@@ -100,5 +100,6 @@ async def stop_all(conn: sqlite3.Connection = Depends(get_conn), manager=Depends
     """Kill switch (§8): stop every run inside its container and pause working/stuck agents. Their tasks are kept."""
     out = await manager.stop_all()
     # §5.2 gives this route no session_id, so the action row has none either.
-    sessions.add_action(conn, None, "stop_all", {}, {"paused": [a["id"] for a in out if a["state"] == "paused"]}, None)
+    sessions.add_action(conn, sessions.action_session.get(), "stop_all", {},
+                        {"paused": [a["id"] for a in out if a["state"] == "paused"]}, None)
     return out

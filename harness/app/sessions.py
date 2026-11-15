@@ -2,8 +2,12 @@
 import json
 import sqlite3
 import uuid
+from contextvars import ContextVar
 
 from . import db
+
+# Associates internal web-chat calls to the unchanged /stop-all route with their session.
+action_session = ContextVar('action_session', default=None)
 
 
 def create_session(conn: sqlite3.Connection, channel: str) -> dict:

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, db
 from .alerts import StuckAlerts
+from .chat import PMChat
 from .routes import agents as agents_routes
 from .routes import context as context_routes
 from .routes import sessions as sessions_routes
@@ -17,6 +18,7 @@ from .routes import tasks as tasks_routes
 from .routes import approvals as approvals_routes
 from .routes import search as search_routes
 from .routes import settings as settings_routes
+from .routes import chat as chat_routes
 from .workers import mock
 from .workers.manager import WorkerManager
 
@@ -43,6 +45,8 @@ async def lifespan(app: FastAPI):
     app.state.alerts = alerts
     if alerts:
         alerts.start_at_current()
+    app.state.pm_chat = PMChat(app)
+    app.state.pm_chat.restore()
     await manager.recover()
     alert_task = asyncio.create_task(alerts.run()) if alerts else None
     skip = frozenset(settings.real_workers)
@@ -62,6 +66,7 @@ async def lifespan(app: FastAPI):
                 await ticker
             except asyncio.CancelledError:
                 pass
+        await app.state.pm_chat.close()
         await manager.shutdown()
 
 
@@ -76,3 +81,4 @@ app.include_router(tasks_routes.router)
 app.include_router(approvals_routes.router)
 app.include_router(search_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(chat_routes.router)

@@ -141,6 +141,19 @@ class MessageCreate(BaseModel):
     text: str
 
 
+class ChatRequest(BaseModel):
+    session_id: str | None = None
+    text: str = Field(min_length=1, max_length=20000)
+
+    @field_validator('text')
+    @classmethod
+    def text_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('text must not be blank')
+        return value
+
+
 class RecentSummary(BaseModel):
     session_id: str
     channel: Channel
