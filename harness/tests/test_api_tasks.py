@@ -211,3 +211,36 @@ def test_pause_resume_preserves_mock_task_and_logs_actions_once(client, sid):
 def test_pause_resume_rejects_unknown_session_or_agent(client):
     assert client.post('/agents/agent-9/pause', json={}).status_code == 404
     assert client.post('/agents/agent-1/resume', json={'session_id': 'missing'}).status_code == 404
+
+
+def test_create_and_assign_tasks_follow_queue_rules(client, sid):
+    first = client.post('/tasks', json={'title': 'First', 'instruction': 'Do first', 'agent_id': 'agent-1', 'session_id': sid})
+    assert first.status_code == 200 and first.json()['status'] == 'queued'
+    before = agent(client, 'agent-1')
+    assert agent(client, 'agent-1')['task'] == before['task']
+    unassigned = client.post('/tasks', json={'title': 'Next', 'instruction': 'Do next'}).json()
+    assert unassigned['status'] == 'queued' and unassigned['agent_id'] is None
+    assigned = client.patch('/tasks/' + unassigned['id'], json={'agent_id': 'agent-3'})
+    assert assigned.status_code == 200 and assigned.json()['status'] == 'working'
+    assert agent(client, 'agent-3')['task'] == 'Next'
+    actions = client.get(f'/sessions/{sid}').json()['actions']
+    assert len(actions) == 1 and actions[0]['tool'] == 'create_task'
+
+
+def test_task_cancel_releases_agent_and_starts_oldest_queued(client):
+    current = sql("SELECT task_id FROM agents WHERE id = 'agent-1'")[0]['task_id']
+    queued = client.post('/tasks', json={'title': 'Queued', 'instruction': 'Next', 'agent_id': 'agent-1'}).json()
+    result = client.patch('/tasks/' + current, json={'status': 'cancelled'})
+    assert result.status_code == 200 and result.json()['status'] == 'cancelled'
+    assert agent(client, 'agent-1')['task'] == 'Queued'
+    assert sql('SELECT status FROM tasks WHERE id = ?', queued['id'])[0]['status'] == 'working'
+
+
+def test_task_conflicts_and_validation_leave_work_intact(client):
+    current = sql("SELECT task_id FROM agents WHERE id = 'agent-1'")[0]['task_id']
+    assert client.patch('/tasks/' + current, json={'agent_id': 'agent-2'}).status_code == 409
+    assert client.patch('/tasks/' + current, json={'status': 'queued'}).status_code == 409
+    assert client.post('/tasks', json={'title': 'x', 'instruction': 'y', 'agent_id': 'agent-9'}).status_code == 404
+    assert client.patch('/tasks/missing', json={'agent_id': 'agent-1'}).status_code == 404
+    assert client.post('/tasks', json={'title': '  ', 'instruction': 'y'}).status_code == 422
+    assert agent(client, 'agent-1')['task'] is not None

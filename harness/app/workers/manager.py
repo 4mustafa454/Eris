@@ -12,9 +12,10 @@ Everything outside the DB is injected (container, process spawner, clock), so te
 import asyncio
 import time
 import uuid
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
-from .. import agents, db, tasks
+from .. import agents, db, sessions, tasks
 from ..config import Settings, secret_values
 from . import docker
 from .stream import MAX_LINE, StreamParser, CodexStreamParser
@@ -29,6 +30,14 @@ class UnknownAgent(KeyError):
 
 
 class ResumeUnavailable(Exception):
+    pass
+
+
+class TaskConflict(Exception):
+    pass
+
+
+class UnknownTask(KeyError):
     pass
 
 
@@ -60,6 +69,7 @@ class WorkerManager:
         self._runs: dict[str, Run] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._detectors: dict[str, StuckDetector] = {}
+        self._tasks_lock = asyncio.Lock()
 
     # -- public ---------------------------------------------------------------------------------------------------
 
@@ -84,6 +94,107 @@ class WorkerManager:
     async def send_task(self, agent_id: str, instruction: str) -> dict:
         """Steer the agent's current task, or start a new one. Returns the AgentState dict."""
         return (await self.send(agent_id, instruction))[0]
+
+    async def create_board_task(self, title: str, instruction: str, agent_id: str | None,
+                                session_id: str | None = None) -> dict:
+        async with self._tasks_lock:
+            async with AsyncExitStack() as stack:
+                if agent_id:
+                    await stack.enter_async_context(self._lock(agent_id))
+                task_id = f'task-{uuid.uuid4().hex}'
+                def write(conn, now):
+                    if agent_id and agents.get_agent(conn, agent_id) is None:
+                        raise UnknownAgent(agent_id)
+                    if agent_id:
+                        status = tasks.add_task(conn, agent_id, title, instruction, now, task_id)
+                    else:
+                        status = 'queued'
+                        conn.execute('INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?)',
+                                     (task_id, title, instruction, status, now, now))
+                    if session_id:
+                        args = {'title': title, 'instruction': instruction}
+                        if agent_id and agent_id.startswith('agent-') and agent_id[6:].isdigit():
+                            args['agent'] = int(agent_id[6:])
+                        sessions.add_action(conn, session_id, 'create_task', args, {'id': task_id, 'status': status}, agent_id)
+                    return dict(conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone())
+                result = self._tx(write)
+                if agent_id and result['status'] == 'working' and self.is_real(agent_id):
+                    self._detectors.pop(agent_id, None)
+                    self._start_run(agent_id, instruction, None)
+                return result
+
+    async def update_board_task(self, task_id: str, fields: dict) -> dict:
+        async with self._tasks_lock:
+            conn = db.connect()
+            try:
+                row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+                if row is None:
+                    raise UnknownTask(task_id)
+                old = dict(row)
+            finally:
+                conn.close()
+            target = fields.get('agent_id', old['agent_id'])
+            async with AsyncExitStack() as stack:
+                for aid in sorted({a for a in (old['agent_id'], target) if a}):
+                    await stack.enter_async_context(self._lock(aid))
+                requested = fields.get('status') or old['status']
+                if old['status'] != 'queued' and target != old['agent_id']:
+                    raise TaskConflict('only queued tasks can be reassigned')
+                if old['status'] in ('done', 'cancelled') and requested != old['status']:
+                    raise TaskConflict('completed or cancelled tasks cannot be reopened')
+                if old['status'] in ('working', 'stuck') and requested in ('queued',):
+                    raise TaskConflict('cancel the active task before replacing it')
+                if old['status'] == 'queued' and requested == 'stuck':
+                    raise TaskConflict('a queued task cannot be stuck')
+                if old['status'] == 'stuck' and requested == 'working':
+                    raise TaskConflict('steer or resume the agent to continue a stuck task')
+                if old['status'] in ('working', 'stuck') and requested in ('done', 'cancelled', 'stuck') and self.is_real(old['agent_id']):
+                    await self._stop_run(old['agent_id'])
+                def write(conn, now):
+                    row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+                    if row is None:
+                        raise UnknownTask(task_id)
+                    if row['status'] != old['status'] or row['agent_id'] != old['agent_id']:
+                        raise TaskConflict('task changed while it was being updated')
+                    if target and agents.get_agent(conn, target) is None:
+                        raise UnknownAgent(target)
+                    if requested == 'working' and old['status'] == 'queued':
+                        if not target or tasks.is_busy(conn, target):
+                            raise TaskConflict('agent is unavailable')
+                        earlier = conn.execute("SELECT id FROM tasks WHERE agent_id = ? AND status = 'queued' AND id != ? AND (created_at < ? OR (created_at = ? AND rowid < (SELECT rowid FROM tasks WHERE id = ?))) LIMIT 1", (target, task_id, old['created_at'], old['created_at'], task_id)).fetchone()
+                        if earlier:
+                            raise TaskConflict('earlier queued tasks must run first')
+                    conn.execute('UPDATE tasks SET agent_id = ?, status = ?, updated_at = ? WHERE id = ?',
+                                 (target, requested, now, task_id))
+                    started = None
+                    if old['status'] in ('working', 'stuck') and requested in ('done', 'cancelled'):
+                        conn.execute("UPDATE agents SET task_id = NULL, state = ?, summary = ?, stuck_reason = NULL, engine_session = NULL, updated_at = ? WHERE id = ? AND task_id = ?",
+                                     ('done' if requested == 'done' else 'idle', f'Task {requested}', now, old['agent_id'], task_id))
+                        started = tasks.start_next_queued(conn, old['agent_id'], now)
+                    elif old['status'] in ('working', 'stuck') and requested == 'stuck' and old['status'] != 'stuck':
+                        tasks.set_state(conn, old['agent_id'], 'stuck', 'Marked stuck', 'Marked stuck', now)
+                        agents.add_event(conn, old['agent_id'], 'stuck', 'stuck: marked by user')
+                    elif target and requested in ('queued', 'working') and old['status'] == 'queued':
+                        if requested == 'working':
+                            conn.execute("UPDATE tasks SET status = 'queued' WHERE id = ?", (task_id,))
+                        if not tasks.is_busy(conn, target):
+                            started = tasks.start_next_queued(conn, target, now)
+                    if started:
+                        conn.execute('UPDATE agents SET engine_session = NULL WHERE id = ?', (target or old['agent_id'],))
+                    result = dict(conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone())
+                    return result, started
+                result, started = self._tx(write)
+                if started:
+                    aid = target or old['agent_id']
+                    if self.is_real(aid):
+                        conn = db.connect()
+                        try:
+                            instruction = conn.execute('SELECT instruction FROM tasks WHERE id = ?', (started[0],)).fetchone()[0]
+                        finally:
+                            conn.close()
+                        self._detectors.pop(aid, None)
+                        self._start_run(aid, instruction, None)
+                return result
 
     async def pause(self, agent_id: str) -> dict:
         async with self._lock(agent_id):

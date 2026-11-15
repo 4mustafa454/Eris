@@ -616,3 +616,16 @@ def test_resume_without_a_saved_real_session_is_refused(world):
             await m.resume('agent-1')
         assert state()['state'] == 'paused' and len(world.spawn.procs) == 1
     arun(main())
+
+
+def test_new_board_task_starts_real_worker_and_queues_busy_work(world):
+    async def main():
+        m = world.manager
+        first = await m.create_board_task('First', 'Do first', 'agent-1')
+        assert first['status'] == 'working'
+        await until(lambda: len(world.spawn.procs) == 1)
+        second = await m.create_board_task('Second', 'Do second', 'agent-1')
+        assert second['status'] == 'queued' and len(world.spawn.procs) == 1
+        assert state()['task'] == 'First'
+        await m.stop_all()
+    arun(main())

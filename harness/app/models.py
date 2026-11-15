@@ -30,6 +30,26 @@ class Task(BaseModel):
     updated_at: str
 
 
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=20000)
+    agent_id: str | None = None
+    session_id: str | None = None
+
+    @field_validator('title', 'instruction')
+    @classmethod
+    def not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('must not be blank')
+        return value
+
+
+class TaskPatch(BaseModel):
+    status: Literal['queued', 'working', 'stuck', 'done', 'cancelled'] | None = None
+    agent_id: str | None = None
+
+
 class Approval(BaseModel):
     id: str
     agent_id: str
