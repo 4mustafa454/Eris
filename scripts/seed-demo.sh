@@ -4,7 +4,8 @@
 #   - rebuilds demo-repo/ from demo-template/ (one commit, one failing test)
 #   - removes the worker containers (eris-agent-N) and their home volumes, so old Claude sessions are gone
 # Then restart the harness: it re-seeds on an empty database. Refuses to run while the harness is answering.
-# Usage: scripts/seed-demo.sh [--yes]
+# --with-approval[=AGENT]: afterwards create one pending git_push approval (default agent-1) via scripts/seed-approval.sh.
+# Usage: scripts/seed-demo.sh [--yes] [--with-approval[=AGENT]]
 # Overridable for tests: ERIS_DB_PATH, DEMO_REPO (relative to harness/, like the harness), HARNESS_URL, DOCKER.
 set -euo pipefail
 
@@ -16,11 +17,15 @@ url="${HARNESS_URL:-http://localhost:8787}"
 docker_cmd="${DOCKER:-docker}"
 
 yes=0
-case "${1:-}" in
-  --yes|-y) yes=1 ;;
-  "") ;;
-  *) echo "usage: scripts/seed-demo.sh [--yes]" >&2; exit 2 ;;
-esac
+approval_agent=""
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y) yes=1 ;;
+    --with-approval) approval_agent="agent-1" ;;
+    --with-approval=?*) approval_agent="${arg#--with-approval=}" ;;
+    *) echo "usage: scripts/seed-demo.sh [--yes] [--with-approval[=AGENT]]" >&2; exit 2 ;;
+  esac
+done
 
 if command -v curl >/dev/null 2>&1 && curl -s -o /dev/null --max-time 2 "$url/agents"; then
   echo "seed-demo: the harness is running at $url. Stop it first (it would keep writing to the old database)." >&2
@@ -38,6 +43,7 @@ if command -v "$docker_cmd" >/dev/null 2>&1; then
 fi
 
 echo "This will:"
+[[ -z "$approval_agent" ]] || echo "  - afterwards create a pending git_push approval for $approval_agent"
 echo "  - delete the database $db (and its -wal/-shm files)"
 echo "  - rebuild $repo and its agent clones from demo-template/ (anything in them is lost)"
 if [[ $have_docker -eq 1 ]]; then
@@ -56,5 +62,8 @@ rm -f "$db" "$db-wal" "$db-shm"
 if [[ $have_docker -eq 1 ]]; then
   for name in "${containers[@]}"; do "$docker_cmd" rm -f "$name" >/dev/null; done
   for name in "${volumes[@]}"; do "$docker_cmd" volume rm "$name" >/dev/null; done
+fi
+if [[ -n "$approval_agent" ]]; then
+  "$root/scripts/seed-approval.sh" "$approval_agent" git_push --detail "push local commits to origin/main"
 fi
 echo "done. Start the harness again: it re-seeds on the empty database."

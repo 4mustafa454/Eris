@@ -3,8 +3,8 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from .. import db, sessions
-from ..deps import get_conn
+from .. import agents, approvals, db, sessions
+from ..deps import get_conn, get_manager
 from ..models import Approval, ApprovalDecision
 
 router = APIRouter()
@@ -21,7 +21,8 @@ def list_approvals(status: str | None = None, conn: sqlite3.Connection = Depends
 
 
 @router.post('/approvals/{approval_id}', response_model=Approval)
-def decide_approval(approval_id: str, body: ApprovalDecision, conn: sqlite3.Connection = Depends(get_conn)):
+async def decide_approval(approval_id: str, body: ApprovalDecision, conn: sqlite3.Connection = Depends(get_conn),
+                          manager=Depends(get_manager)):
     conn.execute('BEGIN IMMEDIATE')
     try:
         row = conn.execute('SELECT * FROM approvals WHERE id = ?', (approval_id,)).fetchone()
@@ -39,8 +40,11 @@ def decide_approval(approval_id: str, body: ApprovalDecision, conn: sqlite3.Conn
                                 {'id': approval_id, 'decision': body.decision},
                                 {'status': body.decision}, row['agent_id'])
         conn.execute('COMMIT')
-        return result
     except BaseException:
         if conn.in_transaction:
             conn.execute('ROLLBACK')
         raise
+    # Existing steer path: the agent waiting on this approval goes back to working (approved) or is told no (denied).
+    if approvals.is_awaiting(agents.get_agent(conn, row['agent_id']), row['action']):
+        await manager.send(row['agent_id'], approvals.steer_instruction(row['action'], body.decision))
+    return result
