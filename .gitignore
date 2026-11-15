@@ -5,3 +5,9 @@ node_modules/
 *.log
 .DS_Store
 agent.mjs.bak
+.env*
+!.env.example
+harness/data/
+*.db
+demo-repo/
+node_modules/

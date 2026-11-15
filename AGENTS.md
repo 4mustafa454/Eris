@@ -1,71 +1,324 @@
-<!-- chert:begin context v1 (chert 0.1.0-beta.20; refresh: chert context --write) -->
-# Chert: this agent answers FaceTime calls
+# AGENTS.md — Eris (HackUTA 2026, Chert track)
 
-## What this folder is
-- A LiveKit agent. `chert dev` connects it to this project's Chert FaceTime line; each call joins a LiveKit room with the agent already in it (the "waiting room").
-- Sign-in and project: `chert whoami --json`. A line answers one call at a time and may be shared with other teams in time slots (see Shared line).
+> Shared contract for every human and AI agent (Claude Code, Codex, Cursor, Grok) working in this repo.
+> Claude Code reads `CLAUDE.md` — keep a one-line `CLAUDE.md` containing `@AGENTS.md` so both stay in sync.
+> Interfaces in §4–§5 (schema, harness API, AgentState, PM tools, frames) are frozen. Do not change them to make a task easier; if a task seems to need a change, stop and say so in your reply or PR description.
 
-## Commands (chert 0.1.0-beta.20)
-- `chert onboard --json`: Set up your account, verify your phone and take a demo call. It opens the browser itself (or prints the address over SSH/with `--no-browser`) and stays running through readiness.
-- Run `chert --json` once (it runs `chert onboard` or `chert dev`, as this computer needs), as a long-running process (in the background if your shell tool has a timeout), and keep reading until `onboarding_done` or `agent_warm`. It waits at every step itself; relay each `message` and `action_url` to the user and do not end your turn while it runs. Never pass `--restart` while a session is active.
-- Start with `chert onboard --json --plan trial --stack demo`. Do not ask plan or agent questions before the hosted demo. Existing paid projects keep their plan.
-- After the demo ends, offer the free trial (50 FaceTime minutes (5 minutes a call) and unlimited inbound iMessage (up to 50 messages an hour), valid for 24 hours from activation) and optional Shared/Dedicated upgrades. Ask whether to connect an existing agent or build a new one, then choose existing LiveKit or Chert-managed LiveKit where available.
-- With no keys, the user can instead describe the agent in one sentence: pass it as `--describe "<sentence>"` (or `chert agent on`); where the account does not have it, onboarding goes on with the usual choices. Never require an audio/video questionnaire.
-- Reuse an existing agent folder and env file. For a new agent, ask what it should do, then create a starter in a new folder. Keep all credentials private. Do not scaffold, fetch provider keys or start checkout during the demo.
-- `chert plan [shared|dedicated] --json`: See the plans and prices, and open checkout in your browser. The person buys in the browser as a project owner or admin; never ask for payment details, and say a plan is bought only when the billing page shows it confirmed.
-- `chert login --device --json`: Sign this computer in to your Chert project. Show the user `verification_url_complete` and `user_code` from the `login_code` record and wait; never approve it yourself.
-- `chert new <dir> [--video]`: Create an agent folder from the starter, ready for your keys. Then `npm install`; the user fills `.env.local`.
-- `chert livekit --json`: Use Chert's LiveKit: write its keys into .env.local. In the agent folder, for the project owner, when Chert provides LiveKit. The secret goes into the file and is never printed; never pass `--force` unless the user asks.
-- `chert agent on "<one sentence>" --json`: Let Chert run an agent on your line, from one sentence. For a project owner or admin on a trial or Shared line, with no keys; use the sentence the user gives, word for word. `chert agent status --json` reads it and `chert agent off` stops it. While `chert dev` holds the line it waits.
-- `chert doctor --agent "$AGENT_NAME" --json`: Check sign-in, LiveKit keys, the line and your agent. Exit 0 means ready; each failed check says what to fix.
-- `chert dev --json`: Connect your agent to your line until you press Ctrl+C. Run it in the background after `npm start`; wait for `agent_warm`; add `--minutes N` or `--until HH:MM` for a bounded run.
-- Stop `chert dev` with SIGINT or SIGTERM and wait for `dev_stopped`; never SIGKILL (the line would stay held until its lease lapses).
-- `chert whoami`: Show who is signed in, and to which project. `chert logout`: Sign out and revoke this computer. `chert guide [TOPIC]`: A short handbook: your agent, video, sharing a line, fixes. `chert context`: Chert's rules for a coding agent, as an AGENTS.md block.
-- Never pass `--takeover` (replace another session that holds the line), `--force` (take the line even when Chert says it cannot take calls yet (paused, offline, not acknowledged)) or `--no-prewarm` unless the user asks for it by name.
+## 1. What we are building
 
-## Rules the Mac enforces
-- Register with a name: agentName in the Node SDK, agent_name in Python. Put the same name in AGENT_NAME in .env.local, and choose one no other team uses.
-- Use the LiveKit project whose three LIVEKIT_ values are in .env.local. On a Shared plan with Chert rooms, leave all three empty: calls then run in Chert's LiveKit, and the starters join each call with a token chert dev hands them, so no LiveKit account is needed.
-- Join the room at once, then wait for the caller before opening a paid model session. chert dev keeps a room ready with your agent in it before any call.
-- Greet the caller within 10 seconds of bridge_ready, or the call ends (remote_audio_timeout). At bridge_ready chert dev sets the room metadata to {"chert_bridge_ready":true,...} and prints "FaceTime is ready." Greet once on that, never because the caller joined: FaceTime may still be connecting. The examples do this in greet.mjs. Without the signal, do not greet.
-- The caller joins the room as chert-bridge-<call id>.
-- Publish exactly one unmuted audio track. A second participant publishing audio ends the call.
-- Video: Publish a camera track from the participant that speaks. The Mac takes audio from the one participant that publishes it, and video only from that same participant.
-- After changing your agent, restart both terminals: a waiting room can still hold the old code.
+Eris: mission control for a team of headless coding agents, run by a **PM agent** you can reach over FaceTime, text, or the web.
 
-## Shared line
-- One line answers one call at a time, and one chert dev session holds it. Agree time slots with the other teams.
-- If another session holds the line, chert dev stops with line_in_use and names who holds it, and until when. chert doctor shows the same. During a call it stops with line_in_call: wait for the call to end.
-- A session that is no longer connected (a closed laptop, a crash, a stop whose release failed) is replaced without --takeover: run chert dev and it takes the line. Use --takeover only for a live holder who agrees, and only with no call in progress.
-- Queue behaviour, slot lengths and limits come from Chert; the CLI prints them as records (`slot_set`, `slot_ending`, `slot_over`, `line_in_use`). Do not work around a slot or a holder.
+- **Call in** (FaceTime video) → see a live grid of 3 worker agents, ask the PM for status, say "show me agent 2", give instructions by voice.
+- **Get called / alerted** when a worker is stuck → answer, see its screen, tell it the fix, watch it go green.
+- **Continue anywhere**: every call and chat is saved; the PM remembers previous conversations; the web dashboard can resume any conversation.
+- Pitch: "ClawdTime lets one agent call you. Hermes texts you. Eris lets you watch your whole team work and talk to it face to face."
 
-## Secrets
-- `.env.local` in this folder holds `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (one LiveKit project), the model key the agent uses, and `AGENT_NAME`.
-- Never read aloud, print, log, paste, commit or send these values anywhere. Ask the user to fill them in; `chert doctor` verifies them without showing them.
+Judging (Chert): fresh use of FaceTime video (2×), wow (1×), usefulness (1×). The PM's outgoing video = live view of the team is our core feature. Protect it. Do not chase Hermes on breadth (channels, skills); win on depth of live supervision.
 
-## Output contract
-- `--json` on any command: one JSON record per line with `schema_version: 1` and `command`. Errors go to standard error as `{code, action}`; the action says what to do.
-- Exit codes: 0 success, 1 internal, 2 usage, 3 not ready or not signed in, 4 state, 5 unsupported runtime, 6 network or server, 130 cancelled.
-- Records to watch from `chert dev`: `line_state`, `agent_warm`, `agent_not_warm`, `slot_set`, `slot_ending`, `slot_over`, `call_incoming`, `call_accepted`, `call_bridge_ready`, `call_media`, `call_declined`, `call_ended`, `reconnecting`, `dev_reconnected`, `displaced`, `dev_stopped`, `release_failed`.
+### Demo script (90 seconds, rehearse this)
+1. Call Eris → on `bridge_ready` the PM greets with the recap (must speak within 10 s): "Last call you had agent 3 rename the package — it finished. Agent 2 is writing tests." Grid of 3 agents on screen.
+2. "Show me agent 2." → focus view. "What's it doing?" → one sentence.
+3. Hang up. Agent 1 hits a blocker → alert → call in → "Show me agent 1" → "Tell it to use the v2 endpoint" → watch it go green.
+4. PM: "Agent 1 wants to push. Approve?" → "Approve." → pushed.
+5. Cut to dashboard: the call is already in Conversations with transcript, actions, summary. Click "continue" and type a follow-up.
 
-## When something fails
-- `login_required`: Run chert login. A browser sign-in lasts 30 days.
-- `backend_request_forbidden`: You need the owner or admin role on the project. Check chert whoami.
-- `line_in_use`: Another session holds the line. Ask them to stop, or wait for your slot.
-- `line_in_call`: A call is in progress on the line. Wait for the call to end, then run chert dev again.
-- `line_paused`: Calls are paused on the line. A project admin presses Enable calls on the line in the console.
-- `shared_line_paused`: Calls on a shared line are paused by Chert, not by your project: Chert enables the pool line when the pilot opens. Run chert onboard --status.
-- `shared_allocation_inactive`: Your shared line allocation expired, was released or is not qualified now. Run chert onboard --status; after expiry, chert onboard requests a new one.
-- `trial_line_released`: No agent was connected, so your trial line went back to the pool. Your trial minutes are kept. Run chert onboard to get a line, then keep chert dev running. The number may change.
-- `line_not_customer_decides`: A project admin sets Routing to "Your webhook" and Assistant to "Unassigned" on the line in the console.
-- `line_unacknowledged`: The Mac has not confirmed the line yet. Wait 30 s and try again; if it stays, Anish checks the Mac in Chert MAU.
-- `line_offline, worker_unavailable`: The Mac behind the line is not accepting calls. Anish checks it in Chert MAU. --force takes the line anyway; calls decline until the Mac is back.
-- `YOUR_ placeholders`: Put your LiveKit values in .env.local, or run chert livekit.
-- `has not joined`: Is your agent running? Does AGENT_NAME match the name it registers with, on the same LiveKit project?
-- `silent call`: The Mac ends a call that hears nothing within 10 s of bridge_ready. Greet on the room signal (chert guide agent), and look in terminal 1 for model key or credit errors.
-- `no video`: Call with FaceTime Video, and publish a camera track from the participant that speaks.
-- `call ends at once`: Two participants publish audio. The Mac takes audio from exactly one: let only the agent speak.
-- `call never ends`: Hang up on the phone. If the line stays busy, a project owner or admin ends the call in the console; the CLI cannot.
-- `clock`: Calls declined over timing: set the date and time automatically.
-- `anything else`: Run chert doctor. Each failed check says what to fix.
-<!-- chert:end -->
+## 2. Architecture
+
+```
+iPhone (FaceTime video)                 Browser (dashboard :5173)
+   ⇅                                       ⇅ HTTP / SSE
+Chert FaceTime line ── chert dev          harness/  (Python FastAPI :8787)
+   ⇅                                       ├─ SQLite (WAL + FTS5): sessions, messages, actions, tasks, agents, events, approvals
+LiveKit room (2 participants max)         ├─ PM web-chat endpoint (/chat) — same brain as voice
+   ⇅                                       ├─ worker manager (docker) + stuck detection
+supervisor/ (Node 24, LiveKit Agents JS)  ├─ alerts: ntfy now; Chert outbound later
+   ├─ STT (Deepgram) → LLM → TTS (ElevenLabs Flash | Deepgram)   └─ settings (masked keys) + provider tests
+   ├─ PM tools → HTTP → harness            ⇅ docker
+   ├─ renderer → its own video track      workers/  (Claude Code | Codex, headless, non-root, one container each)
+   ├─ GET :8788/frame.jpg (mirror for dashboard)
+   └─ caller-frame buffer (latest frame on user turn)
+shared/pm/  system_prompt.md + tools.json  ← loaded by BOTH supervisor and harness /chat
+demo-repo/  small repo with seeded tasks + one deliberately broken test
+```
+
+**Hard constraints**
+- Only ONE agent participant in the Chert LiveKit room. Worker screens are drawn into the supervisor's single video track.
+- **One PM brain.** Voice (supervisor) and web (/chat) load the same `shared/pm/system_prompt.md` and `shared/pm/tools.json`, call the same harness routes, and log every turn to the same `sessions`/`messages` tables. Never fork the prompt or tool list.
+- The dashboard never reads `.env` files; it only talks to the harness.
+
+**Three instruction files — never mix them up**
+| File | Read by | Purpose |
+|---|---|---|
+| `/AGENTS.md` (this file) + `/CLAUDE.md` (`@AGENTS.md`) | our coding tools while building | how to build Eris |
+| `shared/pm/system_prompt.md` + `tools.json` | the PM agent at runtime (loaded in code) | how the PM behaves on calls/chat — never name it AGENTS.md |
+| `supervisor/AGENTS.md` | coding tools when editing the supervisor | Chert's generated rules block (keep markers; refresh with `chert context --write`) + a short "Project-wide rules live in /AGENTS.md" line **outside** the markers |
+| `demo-repo/AGENTS.md` | worker agents in Docker | how to do the demo tasks |
+Precedence: inside `supervisor/`, Chert's block wins on Chert behavior (greeting, tracks, line handling); this file wins on everything else (architecture, interfaces, providers).
+
+## 3. Repo layout
+
+| Path | What it is | Stack |
+|---|---|---|
+| `shared/pm/` | PM prompt + tool schemas (used by voice and web) | Markdown + JSON Schema |
+| `supervisor/` | Chert/LiveKit voice agent (the PM on calls) | Node 24 ESM, `@livekit/agents` + deepgram/elevenlabs/openai/silero plugins |
+| `supervisor/render/` | grid/focus frame renderer | `@napi-rs/canvas` |
+| `harness/` | API, database, worker control, stuck detection, web chat | Python 3.11+, FastAPI, sqlite3 (WAL, FTS5) |
+| `workers/` | worker agent containers | Dockerfiles + entrypoints |
+| `dashboard/` | web UI (talks only to harness) | Vite + React (scaffold with Lovable) |
+| `demo-repo/` | separate git repo the workers operate on | whatever the demo tasks need |
+
+Stay inside the folder your task is about; touch another folder only through the interfaces in §5.
+
+## 4. Data model (SQLite, `harness/data/eris.db`)
+
+Enable `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`. Timestamps are ISO-8601 UTC strings.
+
+```sql
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY,            -- 'agent-1'
+  name TEXT NOT NULL,             -- 'Agent 1'
+  color TEXT NOT NULL,            -- '#7F77DD' (same color on video, dashboard, alerts)
+  engine TEXT NOT NULL,           -- 'claude-code' | 'codex'
+  state TEXT NOT NULL,            -- 'idle'|'working'|'stuck'|'done'|'error'|'paused'
+  task_id TEXT REFERENCES tasks(id),
+  summary TEXT,
+  stuck_reason TEXT,
+  engine_session TEXT,            -- Claude session id / Codex thread id for resume
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT REFERENCES agents(id),
+  title TEXT NOT NULL,
+  instruction TEXT NOT NULL,
+  status TEXT NOT NULL,           -- 'queued'|'working'|'stuck'|'done'|'cancelled'
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE sessions (           -- one per call or chat thread
+  id TEXT PRIMARY KEY,
+  channel TEXT NOT NULL,          -- 'facetime'|'web'|'imessage'
+  title TEXT,
+  summary TEXT,                   -- written by PM when session ends
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  role TEXT NOT NULL,             -- 'user'|'pm'|'system'
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='id');
+-- keep in sync with AFTER INSERT/DELETE/UPDATE triggers on messages
+
+CREATE TABLE actions (            -- every PM tool call, from any channel
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT REFERENCES sessions(id),
+  agent_id TEXT REFERENCES agents(id),
+  tool TEXT NOT NULL,             -- 'send_task'|'pause_agent'|...
+  args_json TEXT NOT NULL,
+  result_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE events (             -- human-readable worker activity lines (prune to last 500/agent)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  type TEXT NOT NULL,             -- 'line'|'state_changed'|'stuck'|'done'
+  line TEXT NOT NULL,             -- 'run pytest → 2 failed'
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE approvals (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  action TEXT NOT NULL,           -- 'git_push'
+  detail TEXT,
+  status TEXT NOT NULL,           -- 'pending'|'approved'|'denied'
+  session_id TEXT REFERENCES sessions(id),
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+
+CREATE TABLE settings (           -- non-secret config only; secrets live in harness/.env
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+```
+
+## 5. Interfaces (the contract)
+
+### 5.1 Agent state (JSON shape returned everywhere)
+```json
+{ "id": "agent-1", "name": "Agent 1", "color": "#7F77DD", "engine": "claude-code",
+  "state": "working", "task": "Add input validation to /signup",
+  "summary": "Running tests after editing signup.py", "stuck_reason": null,
+  "updated_at": "2026-11-14T19:02:11Z" }
+```
+
+### 5.2 Harness HTTP API (`http://localhost:8787`)
+
+**Agents**
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/agents` | — | `AgentState[]` |
+| GET | `/agents/{id}` | — | `AgentState` |
+| GET | `/agents/{id}/log` | `?lines=40` | `{ "lines": string[] }` (short, phone-readable) |
+| POST | `/agents/{id}/task` | `{ "instruction", "session_id"? }` | `AgentState` |
+| POST | `/agents/{id}/pause` · `/resume` | `{ "session_id"? }` | `AgentState` |
+| POST | `/stop-all` | — | `AgentState[]` (kill switch) |
+
+**PM memory & conversations**
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/context` | — | `{ recent_summaries: [{session_id, channel, summary, ended_at}] (last 5), agents: AgentState[], open_tasks, pending_approvals }` — loaded into the PM at every session start |
+| POST | `/sessions` | `{ "channel" }` | `Session` |
+| PATCH | `/sessions/{id}` | `{ "ended_at"?, "summary"?, "title"? }` | `Session` |
+| GET | `/sessions` | `?channel=&limit=` | `Session[]` newest first |
+| GET | `/sessions/{id}` | — | `Session` + `messages` + `actions` |
+| POST | `/sessions/{id}/messages` | `{ "role", "text" }` | `Message` (supervisor logs every voice turn here) |
+| POST | `/chat` | `{ "session_id"?, "text" }` | `{ "session_id", "reply", "actions" }` — web channel; runs the shared PM brain; creates a session if none |
+| GET | `/search` | `?q=` | FTS5 hits: `[{session_id, snippet, created_at}]` |
+
+**Tasks**
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/tasks` | `?status=` | `Task[]` |
+| POST | `/tasks` | `{ "title", "instruction", "agent_id"? }` | `Task` |
+| PATCH | `/tasks/{id}` | `{ "status"?, "agent_id"? }` | `Task` (assigning starts it on that agent) |
+
+**Approvals**
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/approvals` | `?status=pending` | `Approval[]` |
+| POST | `/approvals/{id}` | `{ "decision": "approved"|"denied", "session_id"? }` | `Approval` |
+
+**Settings**
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/settings` | — | config + providers; secrets masked as `sk-…a1b2` with `"set": true/false` |
+| PUT | `/settings` | partial object | updated (secrets written to `harness/.env`, never echoed back) |
+| POST | `/settings/test/{provider}` | — | `{ ok, detail }` — `deepgram`, `openai`, `ollama`, `livekit`, `claude`, `codex`, `chert`, `ntfy` |
+
+**Live updates**: `GET /events` (SSE) → `{ "type": "agent"|"task"|"approval"|"session", "data": {...} }`.
+
+### 5.3 PM tools (`shared/pm/tools.json`, JSON Schema; same list for voice and web)
+- `get_status()` → GET /agents
+- `show_grid()` / `focus_agent(n)` → voice-only renderer mode (web ignores)
+- `send_task(n, instruction)` → POST /agents/{id}/task
+- `pause_agent(n)` / `resume_agent(n)` / `stop_all()`
+- `explain_agent(n)` → GET /agents/{id}/log, summarize in one sentence
+- `create_task(title, instruction, agent?)` → POST /tasks
+- `decide_approval(id, decision)` → POST /approvals/{id}
+- `search_history(query)` → GET /search
+Every tool call is logged to `actions` with the current `session_id`.
+
+### 5.4 PM session lifecycle (both channels)
+1. Start: `POST /sessions` → `GET /context` → inject into system prompt as "What happened last time" + current state.
+2. Each turn: log user + PM messages via `/sessions/{id}/messages`; tools log `actions`.
+3. End (hangup / 10 min idle on web): PM writes a 2–3 sentence summary → `PATCH /sessions/{id}`; voice sessions also send the summary as an alert ("Call recap: …").
+
+### 5.5 Frames
+- Renderer lives **inside** the supervisor (no IPC for pixels). Polls `/agents` + `/agents/{id}/log` ~2 Hz; draws 1920×1080; publishes at 15 fps (repeat last frame).
+- Modes: `grid` (≤3 tiles, ~28px min text, color badge per state) and `focus` (one agent, ~36px min text).
+- Also serves the latest frame as JPEG at `http://localhost:8788/frame.jpg` for the dashboard Live page.
+
+## 6. Dashboard (`dashboard/`, Vite + React, :5173)
+Scaffold UI with Lovable, then wire to the harness. Four pages:
+1. **Live** — mirror of `frame.jpg` (refresh ~2 Hz) + agent cards (name/color, state, task, last 5 lines) + Stop all.
+2. **Conversations** — list of sessions (channel icon, title, summary, time) + search box (`/search`). Detail: transcript, action timeline, summary. **Continue** → chat panel on `/chat` with that `session_id`.
+3. **Tasks** — board: queued / working / stuck / done; create task; assign via dropdown; pending approvals with Approve/Deny.
+4. **Settings** — providers by role (STT, PM LLM, TTS, worker engines, alerts), masked keys, "Test" per provider, Chert line status.
+Live data via `/events` SSE. No auth beyond binding to localhost for the hackathon.
+
+## 7. Workers — headless agents
+
+Both run in Docker as a **non-root user**, repo mounted at `/workspace`. Workers **commit locally only**; they have no push credentials. Pushes go through an approval (§8).
+
+**Claude Code**
+- Auth: `claude setup-token` once on the host → `CLAUDE_CODE_OAUTH_TOKEN` into the container (or `ANTHROPIC_API_KEY`).
+- Run: `claude -p "<task>" --output-format stream-json --verbose --dangerously-skip-permissions --max-turns 30`
+- Follow-ups: save session id to `agents.engine_session`; continue with `--resume <id>`.
+- Gotcha: skip-permissions refuses to run as root. Non-root user + explicit `HOME`.
+
+**Codex**
+- Auth: host `codex login` (ChatGPT account) → mount `~/.codex/auth.json` read-write (password-level secret; never commit).
+- Run: `codex exec --json --sandbox danger-full-access "<task>"` (container is the sandbox; `--full-auto` is deprecated).
+- Follow-ups: `codex exec resume <thread_id> "<instruction>"`; thread id from the first JSON event.
+- Needs a git repo in `/workspace` (or `--skip-git-repo-check`).
+
+The harness converts both JSON streams into short `events.line` entries. **Never** run either agent with skip-permissions outside a container.
+
+**`demo-repo/` setup**
+- Its own git repo (`git init` inside it) and listed in the root `.gitignore`, so workers never discover the root AGENTS.md/CLAUDE.md even outside Docker.
+- Only `demo-repo/` is mounted into containers (at `/workspace`).
+- `demo-repo/AGENTS.md` (worker rules, keep it short):
+  ```
+  - Run tests: pytest -q
+  - Commit locally after each passing change. Never push.
+  - If blocked, end your reply with one line starting "BLOCKED:" followed by the question.
+  ```
+
+## 8. Safety (judges will ask)
+- Each worker sees only its container + mounted repo. No host home dir, no docker socket.
+- Secrets live in `harness/.env` / `supervisor/.env.local`; never placed in any model prompt, log line, or API response.
+- Kill switch: `/stop-all` (voice: "stop everything").
+- Approval gate: `git_push` (and any deploy) creates an `approvals` row → PM asks on the call / dashboard shows Approve-Deny → harness performs the push only if approved.
+
+## 9. Stuck detection (harness)
+Mark `stuck` with `stuck_reason` when: final message contains a line starting `BLOCKED:` (primary signal; `stuck_reason` = text after it) · no new events 90 s while working · same test fails 3 runs in a row · run ended with error / max turns. On stuck: SSE event + alert (ntfy now; Chert outbound later), debounced 1 per agent per 2 min.
+
+## 10. Models & config
+`supervisor/.env.local` (never commit):
+```
+LIVEKIT_URL=  LIVEKIT_API_KEY=  LIVEKIT_API_SECRET=
+AGENT_NAME=eris
+STT_PROVIDER=deepgram           # deepgram | elevenlabs
+TTS_PROVIDER=elevenlabs         # elevenlabs | deepgram
+DEEPGRAM_API_KEY=               # $200 free credit; default STT
+ELEVENLABS_API_KEY=             # shared credit pool for STT+TTS; use Flash TTS model
+ELEVENLABS_VOICE_ID=
+OPENAI_API_KEY=                 # gpt-5-mini on Build tier
+LLM_BASE_URL=                   # empty = OpenAI; http://localhost:11434/v1 = Ollama (gpt-oss:20b)
+LLM_MODEL=gpt-5-mini
+HARNESS_URL=http://localhost:8787
+```
+`harness/.env`: `OPENAI_API_KEY=`, `LLM_BASE_URL=`, `LLM_MODEL=`, `CLAUDE_CODE_OAUTH_TOKEN=`, `NTFY_TOPIC=`, `WORKER_COUNT=3`.
+- Keep the Chert starter's `@livekit/agents` version; add deepgram/elevenlabs/openai/silero plugins at the **same** version.
+- STT and TTS are chosen at startup from `STT_PROVIDER` / `TTS_PROVIDER` — no code change to switch. Default: Deepgram STT + ElevenLabs Flash TTS (two providers so one outage or empty credit pool doesn't kill both directions).
+- PM style: 1–2 short sentences, agents are "Agent 1/2/3", never read logs verbatim.
+
+## 11. Chert specifics (do not fight these)
+Authoritative, version-matched rules live in `supervisor/AGENTS.md` (generated by Chert between `<!-- chert:begin -->` / `<!-- chert:end -->`; refresh with `cd supervisor && chert context --write`; never hand-edit inside the markers). Summary of what affects our design:
+- CLI: use the version Chert's block names (currently `0.1.0-beta.20`); Node 24 (not 26).
+- Run order: `npm start` (supervisor) → `chert doctor --json` → `chert dev --json` in the background; wait for `agent_warm`.
+- **Greet within 10 s of `bridge_ready` or the call ends** (`remote_audio_timeout`). Greet exactly once when room metadata has `chert_bridge_ready: true` (the starter's `greet.mjs` does this) — never on participant join. The greeting is our "Last call you…" recap.
+- Exactly ONE participant publishes audio, and video only counts from that same participant: the supervisor publishes both its voice and the grid as a **camera** track. A second audio publisher ends the call.
+- Caller joins as `chert-bridge-<call id>`. Demo phone must place a **FaceTime Video** call.
+- Agent can't see/share the caller's screen; "show it the bug" = phone camera.
+- After any supervisor code change, restart BOTH terminals (waiting room may hold old code). Stop `chert dev` with SIGINT/SIGTERM and wait for `dev_stopped` — never SIGKILL.
+- Never pass `--takeover`, `--force`, `--no-prewarm` unless explicitly asked.
+- **Trial budget:** 50 FaceTime minutes total, **5 minutes per call**, valid **24 h from activation**; unlimited inbound iMessage (≤50/hour). Don't activate the trial until the supervisor works in Agent Console. Keep the demo call under 5 minutes. Keep `chert dev` running once a line is assigned (an unconnected trial line returns to the pool).
+- Shared plan with Chert rooms: leave the three `LIVEKIT_*` values empty and `chert dev` provides a token; otherwise use our LiveKit project.
+- Develop in LiveKit **Agent Console**; spend line minutes on rehearsal only.
+
+## 12. Milestones
+- **M0** SQLite schema + `/agents` (mock workers) + `/sessions` + `/context` + `shared/pm/` files.
+- **M1** Supervisor answers "status?" in Agent Console from M0, logging turns to a session.
+- **M2** Renderer grid + focus by voice; `frame.jpg` served.
+- **M3** One real Claude Code worker driven by `send_task`; events → lines.
+- **M4** 3 workers (Claude Code + Codex); stuck detection + ntfy; session summary on hangup; PM recalls last call.
+- **M5** Dashboard: Live + Conversations (search + continue via `/chat`).
+- **M6** Tasks board + approvals (voice + web) + Settings with provider tests.
+- **M7** Caller-frame "look at this"; on a Chert line: full demo script end to end; mock mode + recorded backup; Devpost ("Best Use of FaceTime (Chert)").
+- Stretch: Chert outbound call on stuck; worker-to-worker handoff (agent 2 reviews agent 1); iMessage alerts with screenshots.
+
+## 13. Open items
+- Outbound FaceTime from our line needs a project API key with `facetime:write`; docs conflict on audio-only vs video. Fallback: alert → user calls in.
+- Line assignment ETA from Chert.
+- ≥1 iPhone on the team; demo phone number verified on the Chert project.
