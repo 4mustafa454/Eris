@@ -5,7 +5,7 @@ logs every call. Contract: `/AGENTS.md`. Chert rules for this folder: `AGENTS.md
 
 M1 scope: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/`, `get_status` and
 `explain_agent` working, a template greeting on `bridge_ready`, and every turn and read-only action logged to a
-session. Not yet: the video grid (M2), sending work to agents (M3), hangup summaries (M4). The other tools
+session. Not yet: publishing the video grid into calls (M2 part B; the renderer itself is built, see below), sending work to agents (M3), hangup summaries (M4). The other tools
 answer "not available yet".
 
 ## Setup
@@ -59,6 +59,24 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
 8. Remove `GREET_ON_JOIN` and restart: no greeting in Agent Console (the silent default).
 9. Stop the harness mid-call: the call keeps going and the PM says it can't reach the team.
 
+## Team view renderer (M2)
+
+`render/` draws the team as 1920×1080 frames from `GET /agents` and `GET /agents/{id}/log` (polled at 2 Hz): a grid of up
+to 3 agents, or one agent full-frame. It redraws only when what is drawn changes, and warns if a redraw takes over 30 ms.
+It needs no keys. It is not yet attached to calls: publishing it as the camera track and the `show_grid` /
+`focus_agent` tools are M2 part B.
+
+```sh
+npm run render:samples            # PNGs for every fixture and mode → render/out/samples/ (gitignored)
+npm run render:samples -- --live  # the same from the running harness (HARNESS_URL, default :8787)
+npm run frames                    # serve http://localhost:8788/frame.jpg from the harness; "g" / "f 2" switch mode
+```
+
+With `npm run frames` running, stop the harness to see the "harness unreachable" frame, and start it again to see
+recovery. Test PNGs from `npm test` land in `render/out/test/`. The font (DejaVu Sans, free license) is bundled in
+`render/fonts/`. Only one process can hold port 8788 (`FRAME_PORT` to change it); a second logs a warning and runs
+without the mirror.
+
 ## Switching providers
 
 Set the variable, restart `npm start`. No code changes.
@@ -86,6 +104,6 @@ npm run check     # syntax check of every .mjs file
 npm test          # unit tests; the harness tests start a real harness on a throwaway database
 ```
 
-Layout: `agent.mjs` (entry, fails fast on config), `src/call.mjs` (one call), `src/config.mjs` (provider registries),
+Layout: `render/` (see above), `agent.mjs` (entry, fails fast on config), `src/call.mjs` (one call), `src/config.mjs` (provider registries),
 `src/tools.mjs`, `src/greeting.mjs`, `src/harness.mjs`, `src/pm-prompt.mjs` (port of `harness/app/pm.py`, tested for
 identical output).
