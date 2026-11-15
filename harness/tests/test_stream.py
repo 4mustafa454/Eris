@@ -300,3 +300,11 @@ def test_the_real_auth_failure_stream_is_an_error_with_claudes_own_message():
 def test_the_terminal_reason_also_marks_running_out_of_turns():
     line = event("result", subtype="success", is_error=True, terminal_reason="max_turns", result="")
     assert StreamParser().feed(line).result == Result("max_turns", "", "ran out of turns")
+
+
+def test_summaries_are_plain_text_because_the_pm_reads_them_aloud():
+    assert first_sentence("`signup()` now **raises** `ValueError` for bad emails. Next.") == "signup() now raises ValueError for bad emails."
+    u = StreamParser().feed(asst({"type": "text", "text": "I fixed `signup()`."}))
+    assert u.summary == "I fixed signup()."
+    r = StreamParser().feed(final("Added **validation** to `signup()`.")).result
+    assert r.summary == "Added validation to signup()."

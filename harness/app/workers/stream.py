@@ -58,7 +58,8 @@ def _cut(text: str, limit: int) -> str:
 
 
 def first_sentence(text: str, limit: int = MAX_LINE) -> str:
-    text = _clean(text)
+    """The first sentence, plain: markdown emphasis and code ticks removed, because the PM reads summaries aloud."""
+    text = _clean(text.replace("`", "").replace("**", ""))
     m = re.match(r"(.+?[.!?])(?:\s|$)", text)
     return _cut(m.group(1) if m else text, limit)
 

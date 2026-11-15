@@ -58,6 +58,12 @@ def test_max_turns_image_and_repo_overrides():
         settings({"WORKER_IMAGE": "has space"})
 
 
+def test_stream_log_is_optional_and_relative_to_harness():
+    assert settings({}).stream_log is None
+    assert settings({"ERIS_STREAM_LOG": "data/stream.log"}).stream_log == (config.HARNESS_DIR / "data/stream.log").resolve()
+    assert settings({"ERIS_STREAM_LOG": "  "}).stream_log is None
+
+
 def test_every_problem_is_reported_at_once():
     with pytest.raises(ConfigError) as e:
         settings({"REAL_WORKERS": "agent-1,agent-9", "CLAUDE_MAX_TURNS": "x"})

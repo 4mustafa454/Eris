@@ -221,6 +221,7 @@ class WorkerManager:
             if run.stopped:  # stopped while the process was starting: the interrupt may have come too early
                 await self._container(agent_id).interrupt()
             async for line in run.proc.stdout:
+                self._dump(agent_id, run, line)
                 if run.stopped:
                     continue  # drain; an interrupted run no longer changes the agent
                 self._apply(agent_id, run.parser.feed(line))
@@ -240,6 +241,19 @@ class WorkerManager:
         except Exception as error:  # never leave an agent "working" with nothing running
             if not run.stopped:
                 self._fail(agent_id, f"worker failed: {type(error).__name__}", run.parser)
+
+    def _dump(self, agent_id: str, run: Run, line) -> None:
+        """ERIS_STREAM_LOG: append the raw stream line, redacted, for debugging. Never breaks a run."""
+        path = self.settings.stream_log
+        if path is None:
+            return
+        try:
+            text = line.decode("utf-8", "replace") if isinstance(line, bytes) else line
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a") as f:
+                f.write(f"{agent_id}\t{run.parser.redact(text.rstrip(chr(10)))}\n")
+        except Exception:
+            pass
 
     # -- DB writes (each its own short transaction) ---------------------------------------------------------------
 

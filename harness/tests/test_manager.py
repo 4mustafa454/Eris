@@ -209,6 +209,48 @@ def test_a_real_captured_run_replays_to_an_error_state_with_claudes_message(worl
     assert task_rows()[0]["status"] == "stuck", "the task stays steerable"
 
 
+def test_the_raw_stream_log_is_opt_in_redacted_and_never_breaks_a_run(world, tmp_path):
+    log_file = tmp_path / "logs" / "stream.log"
+    settings = Settings(real_workers=("agent-1",), demo_repo=tmp_path, secret_name="CLAUDE_CODE_OAUTH_TOKEN", stream_log=log_file)
+    m = WorkerManager(settings, container_factory=lambda a: FakeContainer(a, world.spawn, world.interrupts),
+                      spawn=world.spawn, env={"CLAUDE_CODE_OAUTH_TOKEN": TOKEN})
+
+    async def main():
+        await m.send_task("agent-1", "go")
+        await until(lambda: world.spawn.procs)
+        world.spawn.procs[0].say(fixture("blocked")[0], f'{{"type":"assistant","message":{{"content":[{{"type":"text","text":"key {TOKEN}"}}]}}}}')
+        world.spawn.procs[0].say(*fixture("blocked")[1:])
+        world.spawn.procs[0].end(0)
+        await m.wait_idle("agent-1")
+
+    arun(main())
+    text = log_file.read_text()
+    assert TOKEN not in text and "[redacted]" in text
+    lines = text.splitlines()
+    assert len(lines) == len(fixture("blocked")) + 1 and all(ln.startswith("agent-1\t{") for ln in lines)
+    assert state()["state"] == "stuck"
+
+    # an unwritable path must not break the run
+    bad = Settings(real_workers=("agent-1",), demo_repo=tmp_path, secret_name="CLAUDE_CODE_OAUTH_TOKEN", stream_log=tmp_path / "stream.log" / "x")
+    (tmp_path / "stream.log").write_text("a file, so mkdir under it fails")
+    spawn2 = FakeSpawn()
+    m2 = WorkerManager(bad, container_factory=lambda a: FakeContainer(a, spawn2, []), spawn=spawn2)
+
+    async def again():
+        await m2.send_task("agent-1", "steer on")
+        await until(lambda: spawn2.procs)
+        spawn2.procs[0].say(*fixture("done_after_fix"))
+        spawn2.procs[0].end(0)
+        await m2.wait_idle("agent-1")
+
+    arun(again())
+    assert state()["state"] == "done"
+
+
+def test_the_stream_log_is_off_by_default(world, tmp_path):
+    assert world.settings.stream_log is None
+
+
 def test_docker_trouble_is_an_error_state_not_a_hang(world):
     async def main():
         world.manager._containers["agent-1"] = FakeContainer(

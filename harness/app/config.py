@@ -4,6 +4,7 @@ REAL_WORKERS      comma-separated agent ids that run as real workers in Docker (
 WORKER_IMAGE      docker image for the Claude Code worker (default eris-claude-code:2.1.316)
 CLAUDE_MAX_TURNS  --max-turns for each claude run, 1 to 200 (default 30)
 DEMO_REPO         the git repo mounted at /workspace (default ../demo-repo, relative to harness/)
+ERIS_STREAM_LOG   optional file the raw claude stream-json is appended to (secrets redacted), for debugging a run
 CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY   required when REAL_WORKERS is not empty (AGENTS.md §7)
 """
 import os
@@ -16,7 +17,7 @@ DEFAULT_IMAGE = "eris-claude-code:2.1.316"
 DEFAULT_MAX_TURNS = 30
 SECRET_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 # Every variable this module reads, for harness/.env.example (a test keeps the two in step).
-ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", *SECRET_NAMES)
+ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
 
 
 class ConfigError(Exception):
@@ -30,6 +31,7 @@ class Settings:
     claude_max_turns: int = DEFAULT_MAX_TURNS
     demo_repo: Path = HARNESS_DIR.parent / "demo-repo"
     secret_name: str | None = None  # which of SECRET_NAMES is set; the value stays in the environment
+    stream_log: Path | None = None  # ERIS_STREAM_LOG: where the redacted raw stream is appended, if set
 
     def is_real(self, agent_id: str) -> bool:
         return agent_id in self.real_workers
@@ -136,13 +138,16 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     raw_repo = _get(env, "DEMO_REPO")
     demo_repo = (HARNESS_DIR / raw_repo).resolve() if raw_repo else HARNESS_DIR.parent / "demo-repo"
 
+    raw_log = _get(env, "ERIS_STREAM_LOG")
+    stream_log = (HARNESS_DIR / raw_log).resolve() if raw_log else None
+
     secret_name = next((n for n in SECRET_NAMES if _get(env, n)), None)
     if real and secret_name is None:
         problems.append("REAL_WORKERS needs CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in harness/.env")
 
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
-    return Settings(tuple(real), image, turns, demo_repo, secret_name)
+    return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log)
 
 
 def main() -> int:
