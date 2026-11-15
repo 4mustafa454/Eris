@@ -9,9 +9,9 @@ const agent = (n, over = {}) => ({
 const ctx = (agents, extra = {}) => ({ recent_summaries: [], agents, open_tasks: [], pending_approvals: [], ...extra });
 const words = text => text.split(/\s+/).filter(Boolean).length;
 
-test('buildGreeting: current state, at most two clauses, rest deferred', () => {
+test('buildGreeting: current state includes each agent once', () => {
   const text = buildGreeting(ctx([agent(1), agent(2), agent(3, { state: 'done' })]));
-  assert.equal(text, `Hi, it's Eris. Agent 1 is working on "Task 1". Agent 2 is working on "Task 2". Ask me for the rest.`);
+  assert.equal(text, `Hi, it's Eris. Agent 1 is working on "Task 1". Agent 2 is working on "Task 2". Agent 3 finished "Task 3".`);
 });
 
 test('buildGreeting: stuck agents come first, with their reason', () => {
@@ -21,14 +21,14 @@ test('buildGreeting: stuck agents come first, with their reason', () => {
 
 test('buildGreeting: a pending approval is announced, with the agent name and a plain verb', () => {
   const text = buildGreeting(ctx([agent(1, { state: 'done' })], { pending_approvals: [{ id: 'ap-1', agent_id: 'agent-1', action: 'git_push' }] }));
-  assert.equal(text, `Hi, it's Eris. Agent 1 wants to push and needs your approval. Agent 1 finished "Task 1".`);
+  assert.equal(text, `Hi, it's Eris. Agent 1 wants to push and needs your approval; it finished "Task 1".`);
   assert.match(buildGreeting(ctx([agent(1)], { pending_approvals: [{ id: 'x', agent_id: 'agent-1', action: 'deploy_prod' }] })), /wants to deploy prod/);
 });
 
 test('buildGreeting: errors count as attention; paused and idle are handled', () => {
   assert.match(buildGreeting(ctx([agent(1), agent(2, { state: 'error' })])), /^Hi, it's Eris\. Agent 2 hit an error\./);
   assert.match(buildGreeting(ctx([agent(1, { state: 'paused' })])), /Agent 1 is paused\.$/);
-  assert.equal(buildGreeting(ctx([agent(1, { state: 'idle' })])), "Hi, it's Eris. All agents are idle.");
+  assert.equal(buildGreeting(ctx([agent(1, { state: 'idle' })])), "Hi, it's Eris. Agent 1 is idle.");
   assert.equal(buildGreeting(ctx([])), "Hi, it's Eris. No agents are running.");
 });
 
@@ -189,7 +189,7 @@ test('stored recap is followed by live idle status', () => {
   const context = ctx([agent(1, { state: 'idle' })], { recent_summaries: [
     { channel: 'facetime', summary: 'The user picked v2. Agent 1 was working.' },
   ] });
-  assert.equal(buildGreeting(context), "Hi, it's Eris. Last call: The user picked v2. All agents are idle.");
+  assert.equal(buildGreeting(context), "Hi, it's Eris. Last call: The user picked v2. Agent 1 is idle.");
 });
 
 test('recap uses the latest call while the status comes from the fresh snapshot', () => {
@@ -198,7 +198,36 @@ test('recap uses the latest call while the status comes from the fresh snapshot'
     { channel: 'facetime', summary: 'Older call.' },
   ] });
   const greeting = buildGreeting(fresh);
-  assert.match(greeting, /Last call: Agent 1 was working on v2\./);
-  assert.match(greeting, /Agent 1 finished "Use v2"/);
+  assert.match(greeting, /Last call: Agent 1 was working on v2; it finished "Use v2"/);
+  assert.equal((greeting.match(/Agent 1/g) ?? []).length, 1);
   assert.doesNotMatch(greeting, /Older call/);
+});
+
+test('recap and live status name every agent once, including an overlap', () => {
+  const context = ctx([agent(1), agent(2, { state: 'idle' }), agent(3, { state: 'done', task: 'Rename eris_core' })], {
+    recent_summaries: [{ channel: 'facetime', summary: 'Agent 1 was told to use v2.' }],
+  });
+  const text = buildGreeting(context);
+  for (const n of [1, 2, 3]) assert.equal((text.match(new RegExp(`\\bAgent ${n}\\b`, 'g')) ?? []).length, 1, text);
+  assert.match(text, /Agent 1 was told to use v2; it is working/);
+  assert.match(text, /Agent 2 is idle/);
+  assert.match(text, /Rename eris_core/);
+});
+
+test('chooses a recap sentence that does not duplicate multiple agent names', () => {
+  const context = ctx([agent(1), agent(2), agent(3)], { recent_summaries: [
+    { channel: 'facetime', summary: 'Agent 1 and Agent 2 discussed tests. The user chose v2.' },
+  ] });
+  const text = buildGreeting(context);
+  assert.match(text, /Last call: The user chose v2/);
+  for (const n of [1, 2, 3]) assert.equal((text.match(new RegExp(`\\bAgent ${n}\\b`, 'g')) ?? []).length, 1, text);
+});
+
+test('recap shortening never cuts a long word', () => {
+  const longWord = 'x'.repeat(125);
+  const context = ctx([agent(1)], { recent_summaries: [
+    { channel: 'facetime', summary: `${longWord} was discussed.` },
+  ] });
+  const text = buildGreeting(context);
+  assert.ok(text.includes(longWord));
 });

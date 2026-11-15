@@ -331,7 +331,5 @@ test('hangup summary uses the latest harness snapshot and task history', async (
   assert.match(prompt, /Agent 2: idle; task: Write docs/);
   assert.match(prompt, /Agent 3: working; task: Billing tests/);
   const summary = patches.find(p => p.summary)?.summary;
-  assert.match(summary, /Agent 1 is done with Use v2/);
-  assert.match(summary, /Agent 2 is idle, last task Write docs/);
-  assert.match(summary, /Agent 3 is working on Billing tests/);
+  assert.equal(summary, 'The user selected v2.');
 });
