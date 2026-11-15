@@ -11,6 +11,19 @@ KNOWN = {"agent-1": "claude-code", "agent-2": "claude-code", "agent-3": "codex"}
 TOKEN = "sk-ant-oat01-SECRET-VALUE-123"
 
 
+def test_environment_file_is_isolated_and_can_be_overridden(tmp_path, monkeypatch):
+    import os
+
+    isolated = Path(os.environ["ERIS_ENV_FILE"])
+    assert isolated.is_relative_to(tmp_path) and isolated.read_text() == ""
+    custom = tmp_path / "custom.env"
+    custom.write_text("ERIS_TEST_VALUE=custom\n")
+    monkeypatch.setenv("ERIS_ENV_FILE", str(custom))
+    env = {"ERIS_ENV_FILE": str(custom)}
+    load_env_file(env=env)
+    assert env["ERIS_TEST_VALUE"] == "custom"
+
+
 def settings(env, known=KNOWN):
     return load_settings(env, known_agents=known)
 
