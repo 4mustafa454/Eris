@@ -51,7 +51,18 @@ _NEW_TASKS = [
     ("Add rate limiting to /login", "Add rate limiting to the /login endpoint."),
     ("Document the public API", "Write docstrings for the public API."),
     ("Fix the flaky checkout test", "Find and fix the flaky checkout test."),
+    ("Upgrade the web framework", "Upgrade the web framework and fix any deprecations."),
+    ("Add pagination to /orders", "Add cursor pagination to the /orders endpoint."),
+    ("Remove dead code in utils", "Find and delete unused helpers in utils."),
+    ("Speed up the slowest test", "Profile the test suite and speed up the slowest test."),
+    ("Add a health check endpoint", "Add a /healthz endpoint that checks the database."),
 ]
+
+# AGENTS.md §5.2.1: at most one working-or-stuck task per agent, any number queued (run in
+# created_at order). The ticker caps the queue so a long run does not pile up tasks forever.
+MAX_QUEUED_PER_AGENT = 2
+QUEUE_CHANCE = 0.15  # per tick: a "user" adds a task for the agent that just moved
+IDLE_NEW_TASK_CHANCE = 0.5  # per tick on a done agent with an empty queue
 
 
 def seed_agents(conn: sqlite3.Connection) -> None:
@@ -83,9 +94,113 @@ def seed_agents(conn: sqlite3.Connection) -> None:
         raise
 
 
+_LIVE = "('working', 'stuck')"
+_OPEN = "('queued', 'working', 'stuck')"
+
+
+def _has_live_task(conn: sqlite3.Connection, agent_id: str) -> bool:
+    return conn.execute(
+        f"SELECT 1 FROM tasks WHERE agent_id = ? AND status IN {_LIVE}", (agent_id,)
+    ).fetchone() is not None
+
+
+def start_next_queued(conn: sqlite3.Connection, agent_id: str, now: str) -> tuple[str, str] | None:
+    """Start the agent's oldest queued task (created_at, then insertion order).
+
+    Never overwrites work: does nothing while the agent still has a working or stuck task.
+    Returns (task_id, title) or None.
+    """
+    if _has_live_task(conn, agent_id):
+        return None
+    row = conn.execute(
+        "SELECT id, title FROM tasks WHERE agent_id = ? AND status = 'queued'"
+        " ORDER BY created_at, rowid LIMIT 1",
+        (agent_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    conn.execute("UPDATE tasks SET status = 'working', updated_at = ? WHERE id = ?", (now, row["id"]))
+    conn.execute(
+        "UPDATE agents SET task_id = ?, state = 'working', summary = ?, stuck_reason = NULL,"
+        " updated_at = ? WHERE id = ?",
+        (row["id"], f"Starting: {row['title']}", now, agent_id),
+    )
+    agents.add_event(conn, agent_id, "state_changed", f"start task: {row['title']}")
+    return row["id"], row["title"]
+
+
+def complete_task(conn: sqlite3.Connection, agent_id: str, now: str) -> tuple[str, str] | None:
+    """The agent's current task reaches done; then its next queued task starts automatically.
+
+    Returns the (task_id, title) that started, or None if the queue was empty.
+    """
+    agent = conn.execute("SELECT task_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if agent["task_id"]:
+        conn.execute(
+            f"UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ? AND status IN {_LIVE}",
+            (now, agent["task_id"]),
+        )
+    conn.execute(
+        "UPDATE agents SET state = 'done', summary = ?, stuck_reason = NULL, updated_at = ?"
+        " WHERE id = ?",
+        ("Finished the task; tests pass", now, agent_id),
+    )
+    agents.add_event(conn, agent_id, "done", "run pytest → all passed")
+    return start_next_queued(conn, agent_id, now)
+
+
+def enqueue_task(conn: sqlite3.Connection, agent_id: str, rng, now: str) -> tuple[str, str, str] | None:
+    """A new task for an agent, per §5.2.1: starts now if the agent is idle/done, else `queued`.
+
+    Skips titles that are already open on any agent and respects MAX_QUEUED_PER_AGENT.
+    Returns (task_id, title, status) or None if nothing could be created.
+    """
+    agent = conn.execute("SELECT state FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    busy = agent["state"] not in ("idle", "done") or _has_live_task(conn, agent_id)
+    if busy:
+        queued = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE agent_id = ? AND status = 'queued'", (agent_id,)
+        ).fetchone()[0]
+        if queued >= MAX_QUEUED_PER_AGENT:
+            return None
+    taken = {r["title"] for r in conn.execute(f"SELECT title FROM tasks WHERE status IN {_OPEN}")}
+    choices = [t for t in _NEW_TASKS if t[0] not in taken]
+    if not choices:
+        return None
+    title, instruction = rng.choice(choices)
+    task_id = f"task-{rng.getrandbits(32):08x}"
+    status = "queued" if busy else "working"
+    conn.execute(
+        "INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (task_id, agent_id, title, instruction, status, now, now),
+    )
+    if busy:
+        agents.add_event(conn, agent_id, "line", f"queued task: {title}")
+    else:
+        conn.execute(
+            "UPDATE agents SET task_id = ?, state = 'working', summary = ?, stuck_reason = NULL,"
+            " updated_at = ? WHERE id = ?",
+            (task_id, f"Starting: {title}", now, agent_id),
+        )
+        agents.add_event(conn, agent_id, "state_changed", f"start task: {title}")
+    return task_id, title, status
+
+
 def tick_once(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
-    """Advance one random agent a single step. Returns the agent id that moved."""
+    """Advance one random agent a single step, atomically. Returns the agent id that moved."""
     rng = rng or random
+    conn.execute("BEGIN")
+    try:
+        aid = _tick(conn, rng)
+        conn.execute("COMMIT")
+        return aid
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def _tick(conn: sqlite3.Connection, rng) -> str:
     agent = rng.choice(conn.execute("SELECT * FROM agents ORDER BY id").fetchall())
     aid, state = agent["id"], agent["state"]
     now = db.utcnow()
@@ -97,30 +212,25 @@ def tick_once(conn: sqlite3.Connection, rng: random.Random | None = None) -> str
             _set_state(conn, agent, "stuck", f"Blocked: {reason}", reason, now)
             agents.add_event(conn, aid, "stuck", f"BLOCKED: {reason}")
         elif roll < 0.4:
-            _set_state(conn, agent, "done", "Finished the task; tests pass", None, now)
-            agents.add_event(conn, aid, "done", "run pytest → all passed")
+            complete_task(conn, aid, now)
         else:
             line = rng.choice(_WORK_LINES)
             conn.execute("UPDATE agents SET summary = ?, updated_at = ? WHERE id = ?", (line, now, aid))
             agents.add_event(conn, aid, "line", line)
-    elif state == "stuck":
+    elif state == "stuck":  # steered: same task, stuck → working
         _set_state(conn, agent, "working", "Resumed after guidance", None, now)
         agents.add_event(conn, aid, "state_changed", "resumed after guidance")
-    elif state == "done":
-        title, instruction = rng.choice(_NEW_TASKS)
-        task_id = f"task-{rng.getrandbits(32):08x}"
-        conn.execute(
-            "INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, 'working', ?, ?)",
-            (task_id, aid, title, instruction, now, now),
-        )
-        conn.execute("UPDATE agents SET task_id = ? WHERE id = ?", (task_id, aid))
-        _set_state(conn, agent, "working", f"Starting: {title}", None, now)
-        agents.add_event(conn, aid, "state_changed", f"start task: {title}")
+    elif state in ("idle", "done"):
+        if start_next_queued(conn, aid, now) is None and rng.random() < IDLE_NEW_TASK_CHANCE:
+            enqueue_task(conn, aid, rng, now)
+
+    if rng.random() < QUEUE_CHANCE:
+        enqueue_task(conn, aid, rng, now)
     return aid
 
 
 def _set_state(conn, agent, state, summary, stuck_reason, now) -> None:
+    """Working/stuck transitions on the agent's current task (task_id never changes here)."""
     conn.execute(
         "UPDATE agents SET state = ?, summary = ?, stuck_reason = ?, updated_at = ? WHERE id = ?",
         (state, summary, stuck_reason, now, agent["id"]),

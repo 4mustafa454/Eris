@@ -22,7 +22,9 @@ The database is created at `harness/data/eris.db` (gitignored) and seeded with t
 Override the location with `ERIS_DB_PATH`.
 
 Optional mock activity: `MOCK_TICK=1` moves agents between working/stuck/done and adds event
-lines every `MOCK_TICK_SECONDS` (default 4). Data only; no interface changes.
+lines every `MOCK_TICK_SECONDS` (default 4). Data only; no interface changes. It follows the task
+rules in AGENTS.md §5.2.1: a new task for a busy agent is `queued` and starts (oldest first) when the
+current task reaches done; a working task is never overwritten.
 
 Quick check:
 
