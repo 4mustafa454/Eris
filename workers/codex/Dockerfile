@@ -2,7 +2,7 @@
 # Build with scripts/build-codex-worker.sh (it passes your UID/GID so files the worker writes in demo-repo/ are yours).
 FROM node:24-bookworm-slim
 
-ARG CODEX_VERSION=0.114.0
+ARG CODEX_VERSION=0.167.2
 ARG WORKER_UID=1000
 ARG WORKER_GID=1000
 

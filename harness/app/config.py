@@ -17,7 +17,7 @@ DEFAULT_IMAGE = "eris-claude-code:2.1.316"
 DEFAULT_MAX_TURNS = 30
 SECRET_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 # Every variable this module reads, for harness/.env.example (a test keeps the two in step).
-ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
+ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
 
 
 class ConfigError(Exception):
@@ -33,8 +33,10 @@ class Settings:
     secret_name: str | None = None  # which of SECRET_NAMES is set; the value stays in the environment
     stream_log: Path | None = None  # ERIS_STREAM_LOG: where the redacted raw stream is appended, if set
 
-    codex_worker_image: str = "eris-codex:0.114.0"
+    codex_worker_image: str = "eris-codex:0.167.2"
     engines: dict[str, str] = field(default_factory=dict)
+    codex_model: str = "gpt-6.1-terra"
+    codex_reasoning: str = "medium"
 
     def engine_for(self, agent_id: str) -> str:
         return self.engines.get(agent_id, "claude-code")
@@ -133,9 +135,15 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if re.search(r"\s", image):
         problems.append("WORKER_IMAGE must not contain whitespace")
 
-    codex_image = _get(env, "CODEX_WORKER_IMAGE") or "eris-codex:0.114.0"
+    codex_image = _get(env, "CODEX_WORKER_IMAGE") or "eris-codex:0.167.2"
     if re.search(r"\s", codex_image):
         problems.append("CODEX_WORKER_IMAGE must not contain whitespace")
+    codex_model = _get(env, "CODEX_MODEL") or "gpt-6.1-terra"
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", codex_model):
+        problems.append("CODEX_MODEL contains invalid characters")
+    codex_reasoning = _get(env, "CODEX_REASONING") or "medium"
+    if codex_reasoning not in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+        problems.append("CODEX_REASONING is not a supported reasoning level")
 
     turns = DEFAULT_MAX_TURNS
     raw_turns = _get(env, "CLAUDE_MAX_TURNS")
@@ -158,7 +166,7 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
     return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log, codex_image,
-                    {a: known_agents[a] for a in real})
+                    {a: known_agents[a] for a in real}, codex_model, codex_reasoning)
 
 
 def main() -> int:

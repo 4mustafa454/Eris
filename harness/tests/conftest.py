@@ -14,7 +14,7 @@ def _no_real_workers(tmp_path, monkeypatch):
     env_file = tmp_path / "empty.env"
     env_file.write_text("")
     monkeypatch.setenv("ERIS_ENV_FILE", str(env_file))
-    for name in ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"):
+    for name in ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "CLAUDE_MAX_TURNS", "DEMO_REPO", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 

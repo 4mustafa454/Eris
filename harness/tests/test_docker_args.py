@@ -56,6 +56,30 @@ def test_each_agent_gets_its_own_container_and_volume():
     assert "eris-agent-1" in a and "eris-agent-2" in b and "eris-agent-1-home" not in " ".join(b)
 
 
+def test_codex_uses_its_own_repo_home_and_read_only_auth_mount():
+    settings = Settings(real_workers=("agent-3",), demo_repo=REPO, engines={"agent-3": "codex"})
+    argv = d.create_argv("agent-3", settings, 1000, 1000)
+    mounts = pairs(argv, "--mount")
+    assert mounts == [
+        f"type=bind,source={REPO}/.worktrees/agent-3,target=/workspace",
+        "type=volume,source=eris-agent-3-home,target=/home/worker/.codex",
+        f"type=bind,source={Path.home()}/.codex/auth.json,target=/home/worker/.codex/auth.json,readonly",
+    ]
+    assert argv[-3] == settings.codex_worker_image
+
+
+def test_codex_start_and_resume_pass_model_reasoning_and_sandbox():
+    settings = Settings(engines={"agent-3": "codex"}, codex_model="gpt-6.1-terra", codex_reasoning="medium")
+    for sid in (None, "thread-id"):
+        argv = d.exec_argv("agent-3", settings, "--literal prompt", sid)
+        assert pairs(argv, "--model") == ["gpt-6.1-terra"]
+        assert pairs(argv, "--config") == ['model_reasoning_effort="medium"']
+        assert pairs(argv, "--sandbox") == ["danger-full-access"]
+        assert argv[-2:] == ["--", "--literal prompt"]
+        if sid:
+            assert argv.index("--sandbox") < argv.index("resume") and argv[-3] == sid
+
+
 # --- docker exec --------------------------------------------------------------------------------------------------
 
 def test_exec_argv_has_the_claude_flags_and_the_token_by_name_only():

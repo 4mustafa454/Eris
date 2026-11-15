@@ -49,6 +49,10 @@ def workspace_path(agent_id: str, settings: Settings) -> Path:
 
 def create_argv(agent_id: str, settings: Settings, uid: int, gid: int) -> list[str]:
     """`docker run -d` for the agent's long-lived container. No secrets here: the token goes in per `exec`."""
+    codex = settings.engine_for(agent_id) == "codex"
+    home_dir = ".codex" if codex else ".claude"
+    auth_mount = (["--mount", f"type=bind,source={Path.home() / '.codex/auth.json'},target={HOME}/.codex/auth.json,readonly"]
+                  if codex else [])
     return [
         "docker", "run", "-d", "--init",
         "--name", container_name(agent_id),
@@ -60,14 +64,25 @@ def create_argv(agent_id: str, settings: Settings, uid: int, gid: int) -> list[s
         "--security-opt", "no-new-privileges",
         "--memory", MEMORY, "--pids-limit", PIDS_LIMIT, "--cpus", CPUS,
         "--mount", f"type=bind,source={workspace_path(agent_id, settings)},target={WORKSPACE}",
-        "--mount", f"type=volume,source={volume_name(agent_id)},target={HOME}/.claude",
-        settings.worker_image,
+        "--mount", f"type=volume,source={volume_name(agent_id)},target={HOME}/{home_dir}",
+        *auth_mount,
+        settings.codex_worker_image if codex else settings.worker_image,
         *KEEPALIVE,
     ]
 
 
 def exec_argv(agent_id: str, settings: Settings, instruction: str, resume: str | None = None) -> list[str]:
     """One claude run: `docker exec` + `claude -p …`. The instruction is ONE argv element after `--`."""
+    if settings.engine_for(agent_id) == "codex":
+        argv = ["docker", "exec", "-i", "--workdir", WORKSPACE, container_name(agent_id), "codex", "exec",
+                "--sandbox", "danger-full-access"]
+        if resume:
+            argv.append("resume")
+        argv += ["--json", "--model", settings.codex_model,
+                 "--config", f'model_reasoning_effort="{settings.codex_reasoning}"']
+        if resume:
+            argv.append(resume)
+        return [*argv, "--", instruction]
     argv = ["docker", "exec", "-i", "--workdir", WORKSPACE]
     if settings.secret_name:
         argv += ["--env", settings.secret_name]  # no value: docker copies it from our environment
