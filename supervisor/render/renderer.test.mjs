@@ -94,3 +94,20 @@ test('writes PNGs for each fixture × mode into render/out/test/', () => {
     writeFileSync(`${OUT}${name}-focus.png`, r.png());
   }
 });
+
+test('a 1280×720 renderer scales the same layout: right size, stripe where it should be, fits the budget', async () => {
+  const r = createRenderer({ width: 1280, height: 720, log: { warn() {} } });
+  const { rgba } = r.render(grid());
+  assert.equal(rgba.length, 1280 * 720 * 4);
+  const img = await loadImage(r.png());
+  assert.deepEqual([img.width, img.height], [1280, 720]);
+  const jpg = await loadImage(r.jpeg());
+  assert.deepEqual([jpg.width, jpg.height], [1280, 720]);
+  // Agent 1's colour stripe (#7F77DD) runs x 40..48 at 1080p, so about x 27..32 at 720p
+  const at = (x, y) => [...rgba.subarray((y * 1280 + x) * 4, (y * 1280 + x) * 4 + 3)];
+  assert.deepEqual(at(29, 300), [0x7f, 0x77, 0xdd]);
+  assert.notDeepEqual(at(40, 300), [0x7f, 0x77, 0xdd]);
+  writeFileSync(`${OUT}three-grid-720p.png`, r.png());
+  const f = r.render(focus('agent-1'));
+  assert.ok(f.changed && f.ms < 30, `720p focus ${f.ms} ms`);
+});

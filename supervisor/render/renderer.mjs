@@ -20,7 +20,7 @@ function rect(ctx, o) {
 }
 
 /**
- * @param {{ width?: number, height?: number, log?: Pick<Console,'warn'> }} [options]
+ * @param {{ width?: number, height?: number, log?: Pick<Console,'warn'> }} [options]  16:9 sizes only (1920×1080, 1280×720)
  */
 export function createRenderer({ width = WIDTH, height = HEIGHT, log = console } = {}) {
   registerFonts();
@@ -36,6 +36,8 @@ export function createRenderer({ width = WIDTH, height = HEIGHT, log = console }
   let lastRenderMs = 0;
 
   function draw(model) {
+    // Layout is always in 1920×1080 units; a smaller canvas (the 1280×720 fallback) just scales it.
+    ctx.setTransform(width / WIDTH, 0, 0, height / HEIGHT, 0, 0);
     for (const o of layout(model, measure)) {
       if (o.type === 'rect') rect(ctx, o);
       else {
