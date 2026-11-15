@@ -67,14 +67,17 @@ def add_message(conn: sqlite3.Connection, session_id: str, role: str, text: str)
 
 def add_action(
     conn: sqlite3.Connection,
-    session_id: str,
+    session_id: str | None,
     tool: str,
     args: dict,
     result: dict | None,
     agent_id: str | None,
 ) -> dict | None:
-    """Log one tool call. None if the session does not exist; raises LookupError for an unknown agent."""
-    if get_session(conn, session_id) is None:
+    """Log one tool call. None if the session does not exist; raises LookupError for an unknown agent.
+
+    session_id may be None for calls that have no session (POST /stop-all).
+    """
+    if session_id is not None and get_session(conn, session_id) is None:
         return None
     if agent_id is not None and conn.execute(
         "SELECT 1 FROM agents WHERE id = ?", (agent_id,)

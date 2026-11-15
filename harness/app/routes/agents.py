@@ -1,10 +1,12 @@
+import re
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import agents
-from ..deps import get_conn
-from ..models import AgentState, LogResponse
+from .. import agents, sessions
+from ..deps import get_conn, get_manager
+from ..models import AgentState, LogResponse, TaskInstruction
+from ..workers.manager import UnknownAgent
 
 router = APIRouter()
 
@@ -32,3 +34,40 @@ def get_log(
     if log is None:
         raise HTTPException(404, f"unknown agent: {agent_id}")
     return {"lines": log}
+
+
+@router.post("/agents/{agent_id}/task", response_model=AgentState)
+async def send_task(
+    agent_id: str,
+    body: TaskInstruction,
+    conn: sqlite3.Connection = Depends(get_conn),
+    manager=Depends(get_manager),
+):
+    """§5.2.1: steer the agent's working/stuck task (same task, same engine session), or start a new task if it is
+    idle/done. With session_id the harness writes the send_task action row (§5.3: mutating tools are logged here)."""
+    if agents.get_agent(conn, agent_id) is None:
+        raise HTTPException(404, f"unknown agent: {agent_id}")
+    if body.session_id is not None and sessions.get_session(conn, body.session_id) is None:
+        raise HTTPException(404, f"unknown session: {body.session_id}")
+    try:
+        state, kind = await manager.send(agent_id, body.instruction)
+    except UnknownAgent:
+        raise HTTPException(404, f"unknown agent: {agent_id}") from None
+    if body.session_id is not None:
+        args = {"instruction": body.instruction}
+        if (m := re.search(r"(\d+)$", agent_id)):
+            args = {"n": int(m.group(1)), **args}
+        sessions.add_action(
+            conn, body.session_id, "send_task", args,
+            {"kind": kind, "state": state["state"], "task": state["task"]}, agent_id,
+        )
+    return state
+
+
+@router.post("/stop-all", response_model=list[AgentState])
+async def stop_all(conn: sqlite3.Connection = Depends(get_conn), manager=Depends(get_manager)):
+    """Kill switch (§8): stop every run inside its container and pause working/stuck agents. Their tasks are kept."""
+    out = await manager.stop_all()
+    # §5.2 gives this route no session_id, so the action row has none either.
+    sessions.add_action(conn, None, "stop_all", {}, {"paused": [a["id"] for a in out if a["state"] == "paused"]}, None)
+    return out

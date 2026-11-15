@@ -74,6 +74,10 @@ class WorkerManager:
 
     async def send_task(self, agent_id: str, instruction: str) -> dict:
         """Steer the agent's current task, or start a new one. Returns the AgentState dict."""
+        return (await self.send(agent_id, instruction))[0]
+
+    async def send(self, agent_id: str, instruction: str) -> tuple[dict, str]:
+        """Like send_task, and also says what happened: (AgentState dict, 'steer' | 'new')."""
         async with self._lock(agent_id):
             conn = db.connect()
             try:
@@ -104,7 +108,7 @@ class WorkerManager:
                 self._start_run(agent_id, instruction, resume)
             conn = db.connect()
             try:
-                return agents.get_agent(conn, agent_id)
+                return agents.get_agent(conn, agent_id), ("steer" if previous is not None else "new")
             finally:
                 conn.close()
 

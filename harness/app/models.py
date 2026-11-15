@@ -1,7 +1,7 @@
 """Pydantic models for the frozen shapes in AGENTS.md §5."""
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 Channel = Literal["facetime", "web", "imessage"]
 Role = Literal["user", "pm", "system"]
@@ -82,6 +82,19 @@ class ActionCreate(BaseModel):  # POST /sessions/{id}/actions
 class SessionDetail(Session):
     messages: list[Message]
     actions: list[Action]
+
+
+class TaskInstruction(BaseModel):  # POST /agents/{id}/task (§5.2)
+    instruction: str = Field(min_length=1, max_length=20000)
+    session_id: str | None = None
+
+    @field_validator("instruction")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("instruction must not be blank")
+        return value
 
 
 class SessionCreate(BaseModel):
