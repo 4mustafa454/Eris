@@ -10,6 +10,7 @@ When a task finishes, the agent's next queued task starts by itself.
 Everything outside the DB is injected (container, process spawner, clock), so tests replay recorded streams with no Docker.
 """
 import asyncio
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -17,6 +18,7 @@ from .. import agents, db, tasks
 from ..config import Settings, secret_values
 from . import docker
 from .stream import MAX_LINE, StreamParser, CodexStreamParser
+from .stuck import StuckDetector
 
 STOP_GRACE = 10.0        # seconds to wait for a stopped run's stream to end before giving up on it
 STDERR_TAIL = 2000
@@ -39,6 +41,8 @@ class Run:
     proc: object | None = None
     stopped: bool = False        # interrupted (steer) or stopped (stop-all): its result must not change the agent
     parser: StreamParser = field(default_factory=StreamParser)
+    detector: StuckDetector | None = None
+    stuck_reason: str | None = None
 
 
 class WorkerManager:
@@ -51,6 +55,7 @@ class WorkerManager:
         self._containers: dict[str, object] = {}
         self._runs: dict[str, Run] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._detectors: dict[str, StuckDetector] = {}
 
     # -- public ---------------------------------------------------------------------------------------------------
 
@@ -105,6 +110,10 @@ class WorkerManager:
             if self.is_real(agent_id):
                 if previous is not None:
                     await self._stop_run(agent_id)  # interrupt inside the container, then resume with the instruction
+                    if previous == "stuck":
+                        self._detectors.pop(agent_id, None)
+                else:
+                    self._detectors.pop(agent_id, None)
                 self._start_run(agent_id, instruction, resume)
             conn = db.connect()
             try:
@@ -170,7 +179,9 @@ class WorkerManager:
 
     def _start_run(self, agent_id: str, instruction: str, resume: str | None) -> None:
         parser_type = CodexStreamParser if self.settings.engine_for(agent_id) == "codex" else StreamParser
-        run = Run(agent_id, parser=parser_type(secret_values(self._env)))
+        detector = self._detectors.setdefault(agent_id, StuckDetector(time.monotonic()))
+        detector.activity(time.monotonic())
+        run = Run(agent_id, parser=parser_type(secret_values(self._env)), detector=detector)
         self._runs[agent_id] = run
         run.task = asyncio.create_task(self._run(run, instruction, resume))
 
@@ -217,18 +228,28 @@ class WorkerManager:
                 return
             argv = docker.exec_argv(agent_id, self.settings, instruction, resume)
             run.proc = await self._spawn(argv)
+            run.detector.activity(time.monotonic())
+            asyncio.create_task(self._watch(run))
             if run.stopped:  # stopped while the process was starting: the interrupt may have come too early
                 await self._container(agent_id).interrupt()
             async for line in run.proc.stdout:
                 self._dump(agent_id, run, line)
                 if run.stopped:
                     continue  # drain; an interrupted run no longer changes the agent
-                self._apply(agent_id, run.parser.feed(line))
+                update = run.parser.feed(line)
+                if update.alive:
+                    run.detector.activity(time.monotonic())
+                if update.test_run and run.detector.test_run(update.test_failures):
+                    run.stuck_reason = "the same test failed three consecutive runs"
+                self._apply(agent_id, update)
             exit_code = await run.proc.wait()
             stderr_tail = getattr(run.proc, "stderr_tail", "")
             if run.stopped:
                 return
             result = run.parser.finish(exit_code)
+            if run.stuck_reason:
+                from .stream import Result
+                result = Result("blocked", reason=run.stuck_reason)
             if result.kind == "error" and run.parser.result is None and stderr_tail.strip():
                 result.reason = run.parser.redact(_cut(f"{result.reason}: {stderr_tail.strip().splitlines()[-1]}", 200))
             self._finish(agent_id, result, run.parser)
@@ -240,6 +261,25 @@ class WorkerManager:
         except Exception as error:  # never leave an agent "working" with nothing running
             if not run.stopped:
                 self._fail(agent_id, f"worker failed: {type(error).__name__}", run.parser)
+
+    async def _watch(self, run: Run) -> None:
+        """Interrupt stalled runs under the same lock used for steering and stopping."""
+        while run.task and not run.task.done() and not run.stopped:
+            await asyncio.sleep(0.5)
+            reason = run.stuck_reason
+            if not reason and run.detector.silent(time.monotonic()):
+                reason = "no worker events for 90 seconds"
+            if not reason:
+                continue
+            async with self._lock(run.agent_id):
+                if self._runs.get(run.agent_id) is not run or run.stopped or run.task.done():
+                    return
+                await self._stop_run(run.agent_id)
+                def mark(conn, now):
+                    tasks.set_state(conn, run.agent_id, "stuck", _cut(f"Blocked: {reason}"), reason, now)
+                    agents.add_event(conn, run.agent_id, "stuck", _cut(f"stuck: {reason}"))
+                self._tx(mark)
+            return
 
     def _dump(self, agent_id: str, run: Run, line) -> None:
         """ERIS_STREAM_LOG: append the raw stream line, redacted, for debugging. Never breaks a run."""
@@ -305,12 +345,13 @@ class WorkerManager:
                 tasks.set_state(conn, agent_id, "stuck", "Ran out of turns", result.reason, now)
                 agents.add_event(conn, agent_id, "stuck", _cut(f"stuck: {result.reason}"))
             else:
-                tasks.set_state(conn, agent_id, "error", _cut(f"Error: {result.reason}"), result.reason, now)
-                agents.add_event(conn, agent_id, "line", _cut(f"error: {result.reason}"))
+                tasks.set_state(conn, agent_id, "stuck", _cut(f"Error: {result.reason}"), result.reason, now)
+                agents.add_event(conn, agent_id, "stuck", _cut(f"error: {result.reason}"))
             return None
 
         next_instruction = self._tx(write)
         if next_instruction is not None:  # the next queued task started: run it, fresh session
+            self._detectors.pop(agent_id, None)
             self._start_run(agent_id, next_instruction, None)
 
     def _fail(self, agent_id: str, reason: str, parser: StreamParser) -> None:

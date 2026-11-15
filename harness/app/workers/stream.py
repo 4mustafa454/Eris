@@ -38,6 +38,8 @@ class Update:
     session_id: str | None = None                    # claude's session id, for --resume
     result: Result | None = None                     # set on the final `result` event
     alive: bool = False                              # a valid JSON object arrived (the worker is producing output)
+    test_failures: frozenset[str] | None = None     # completed pytest run, when identifiable
+    test_run: bool = False
 
 
 def _clean(text: str) -> str:
@@ -82,6 +84,16 @@ def _pytest_outcome(output: str) -> str:
     if counts.get("passed"):
         return f"{counts['passed']} passed"
     return "no tests ran" if "no tests ran" in output else "error"
+
+
+def _pytest_failures(output: str) -> frozenset[str] | None:
+    """Return failed pytest node IDs, an empty set for a passing run, or None if unknown."""
+    failures = frozenset(re.findall(r"(?m)^FAILED\s+([^\s]+)", output))
+    if failures:
+        return failures
+    if _pytest_outcome(output).endswith("passed"):
+        return frozenset()
+    return None
 
 
 def _tool_text(content) -> str:
@@ -203,7 +215,10 @@ class StreamParser:
             if use is None:
                 continue
             if use["deferred"]:
-                out.lines.append(f"run pytest → {_pytest_outcome(_tool_text(block.get('content')))}")
+                output = _tool_text(block.get('content'))
+                out.lines.append(f"run pytest → {_pytest_outcome(output)}")
+                out.test_failures = _pytest_failures(output)
+                out.test_run = True
             elif block.get("is_error") and use["name"].lower() != "todowrite":
                 out.lines.append(f"{self._short_name(use['name'])} → error")
 
@@ -275,7 +290,10 @@ class CodexStreamParser(StreamParser):
             elif typ == "command_execution":
                 command = item.get("command") or ""
                 if isinstance(command, str) and _PYTEST.search(command):
-                    out.lines.append(f"run pytest → {_pytest_outcome(str(item.get('aggregated_output') or ''))}")
+                    output = str(item.get('aggregated_output') or '')
+                    out.lines.append(f"run pytest → {_pytest_outcome(output)}")
+                    out.test_failures = _pytest_failures(output)
+                    out.test_run = True
                 else:
                     out.lines.append("run command")
             elif typ == "file_change":

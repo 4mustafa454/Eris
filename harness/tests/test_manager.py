@@ -149,7 +149,7 @@ def test_blocked_marks_the_agent_stuck_with_the_question(world):
     assert rows("SELECT type FROM events WHERE agent_id='agent-1' ORDER BY id DESC LIMIT 1")[0]["type"] == "stuck"
 
 
-def test_max_turns_is_stuck_and_an_error_result_is_error(world):
+def test_max_turns_and_error_results_are_stuck(world):
     async def run_fixture(name):
         await world.manager.send_task("agent-1", "go")
         await until(lambda: world.spawn.procs)
@@ -172,12 +172,12 @@ def test_max_turns_is_stuck_and_an_error_result_is_error(world):
 
     arun(steer_into_error())
     a = state()
-    assert a["state"] == "error" and "API Error: 529 overloaded" in a["stuck_reason"]
+    assert a["state"] == "stuck" and "API Error: 529 overloaded" in a["stuck_reason"]
     assert log()[-1].startswith("error: API Error: 529")
     assert task_rows()[0]["status"] == "stuck", "an errored agent still has its one live, steerable task"
 
 
-def test_a_crash_without_a_result_is_an_error_with_the_exit_code_and_a_redacted_stderr_tail(world):
+def test_a_crash_is_stuck_with_the_exit_code_and_a_redacted_stderr_tail(world):
     async def main():
         await world.manager.send_task("agent-1", "go")
         await until(lambda: world.spawn.procs)
@@ -187,12 +187,12 @@ def test_a_crash_without_a_result_is_an_error_with_the_exit_code_and_a_redacted_
 
     arun(main())
     a = state()
-    assert a["state"] == "error" and "exit code 137" in a["stuck_reason"]
+    assert a["state"] == "stuck" and "exit code 137" in a["stuck_reason"]
     assert TOKEN not in str(rows("SELECT * FROM agents")) + str(rows("SELECT * FROM events"))
     assert "[redacted]" in a["stuck_reason"]
 
 
-def test_a_real_captured_run_replays_to_an_error_state_with_claudes_message(world):
+def test_a_real_captured_run_replays_to_stuck_with_claudes_message(world):
     """The auth-failure stream captured from the real container (Claude Code 2.1.316), token redacted."""
     async def main():
         await world.manager.send_task("agent-1", "Run the tests and fix the failing one")
@@ -203,7 +203,7 @@ def test_a_real_captured_run_replays_to_an_error_state_with_claudes_message(worl
 
     arun(main())
     a = state()
-    assert a["state"] == "error" and a["stuck_reason"] == "Failed to authenticate. API Error: 401 Invalid bearer token"
+    assert a["state"] == "stuck" and a["stuck_reason"] == "Failed to authenticate. API Error: 401 Invalid bearer token"
     assert session() == "a7475922-8c91-4ae9-8c07-1e942c308ea7"
     assert log()[-1] == "error: Failed to authenticate. API Error: 401 Invalid bearer token"
     assert task_rows()[0]["status"] == "stuck", "the task stays steerable"
@@ -554,4 +554,33 @@ def test_codex_steers_same_thread_after_stopping_the_first_run(world):
         assert state("agent-3")["state"] == "done"
         assert session("agent-3") == "codex-thread"
 
+    arun(main())
+
+
+def test_silent_run_is_interrupted_and_marked_stuck(world):
+    async def main():
+        m = world.manager
+        await m.send_task("agent-1", "work")
+        await until(lambda: bool(world.spawn.procs))
+        m._runs["agent-1"].detector.last_activity -= 91
+        await until(lambda: state()["state"] == "stuck", timeout=3)
+        assert state()["stuck_reason"] == "no worker events for 90 seconds"
+        assert world.spawn.procs[0].rc == 130
+        assert task_rows()[0]["status"] == "stuck"
+    arun(main())
+
+
+def test_three_matching_test_failures_interrupt_the_worker(world):
+    import json
+    async def main():
+        m = world.manager
+        await m.send_task("agent-1", "work")
+        await until(lambda: bool(world.spawn.procs))
+        proc = world.spawn.procs[0]
+        for n in range(3):
+            proc.say(json.dumps({"type":"assistant", "message":{"content":[{"type":"tool_use", "id":str(n), "name":"Bash", "input":{"command":"pytest -q"}}]}}),
+                     json.dumps({"type":"user", "message":{"content":[{"type":"tool_result", "tool_use_id":str(n), "content":"FAILED tests/test_x.py::test_a - AssertionError\n1 failed in 1s"}]}}))
+        await until(lambda: state()["state"] == "stuck", timeout=3)
+        assert "three consecutive" in state()["stuck_reason"]
+        assert proc.rc == 130
     arun(main())
