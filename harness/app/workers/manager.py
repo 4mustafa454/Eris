@@ -213,6 +213,8 @@ class WorkerManager:
         agent_id = run.agent_id
         stderr_tail = ""
         try:
+            if self.settings.engine_for(agent_id) != "claude-code":
+                raise docker.WorkerError("Codex worker support is not yet implemented")
             await self._container(agent_id).ensure()
             if run.stopped:  # stopped before it ever started: it must not start now
                 return

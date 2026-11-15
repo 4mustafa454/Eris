@@ -40,7 +40,6 @@ def test_unknown_duplicate_and_non_claude_agents_are_rejected_naming_the_variabl
     for value, message in [
         ("agent-9", "unknown agent 'agent-9'"),
         ("agent-1,agent-1", "agent-1 is listed twice"),
-        ("agent-3", "agent-3 is a codex agent"),
     ]:
         with pytest.raises(ConfigError, match=re.escape(message)) as e:
             settings({**base, "REAL_WORKERS": value})
@@ -171,3 +170,11 @@ def test_the_app_prints_env_warnings_at_startup(db_file, tmp_path, monkeypatch, 
         pass
     err = capsys.readouterr().err
     assert "[eris] e.env line 2 is not KEY=VALUE" in err and LEAK not in err
+
+
+def test_mixed_engines_and_codex_only():
+    s = settings({"REAL_WORKERS": "agent-1,agent-3", "CLAUDE_CODE_OAUTH_TOKEN": TOKEN})
+    assert s.engine_for("agent-1") == "claude-code" and s.engine_for("agent-3") == "codex"
+    assert settings({"REAL_WORKERS": "agent-3"}).secret_name is None
+    with pytest.raises(ConfigError, match="unsupported engine"):
+        settings({"REAL_WORKERS": "agent-4"}, {"agent-4": "unknown"})

@@ -5,11 +5,11 @@ WORKER_IMAGE      docker image for the Claude Code worker (default eris-claude-c
 CLAUDE_MAX_TURNS  --max-turns for each claude run, 1 to 200 (default 30)
 DEMO_REPO         the git repo mounted at /workspace (default ../demo-repo, relative to harness/)
 ERIS_STREAM_LOG   optional file the raw claude stream-json is appended to (secrets redacted), for debugging a run
-CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY   required when REAL_WORKERS is not empty (AGENTS.md §7)
+CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY   required for real Claude workers
 """
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 HARNESS_DIR = Path(__file__).resolve().parent.parent
@@ -17,7 +17,7 @@ DEFAULT_IMAGE = "eris-claude-code:2.1.316"
 DEFAULT_MAX_TURNS = 30
 SECRET_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 # Every variable this module reads, for harness/.env.example (a test keeps the two in step).
-ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
+ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
 
 
 class ConfigError(Exception):
@@ -32,6 +32,12 @@ class Settings:
     demo_repo: Path = HARNESS_DIR.parent / "demo-repo"
     secret_name: str | None = None  # which of SECRET_NAMES is set; the value stays in the environment
     stream_log: Path | None = None  # ERIS_STREAM_LOG: where the redacted raw stream is appended, if set
+
+    codex_worker_image: str = "eris-codex:latest"
+    engines: dict[str, str] = field(default_factory=dict)
+
+    def engine_for(self, agent_id: str) -> str:
+        return self.engines.get(agent_id, "claude-code")
 
     def is_real(self, agent_id: str) -> bool:
         return agent_id in self.real_workers
@@ -116,8 +122,8 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
             continue
         if agent_id not in known_agents:
             problems.append(f"REAL_WORKERS: unknown agent {agent_id!r} (known: {', '.join(sorted(known_agents))})")
-        elif known_agents[agent_id] != "claude-code":
-            problems.append(f"REAL_WORKERS: {agent_id} is a {known_agents[agent_id]} agent; only claude-code agents can be real in M3")
+        elif known_agents[agent_id] not in ("claude-code", "codex"):
+            problems.append(f"REAL_WORKERS: {agent_id} has unsupported engine {known_agents[agent_id]!r}")
         elif agent_id in real:
             problems.append(f"REAL_WORKERS: {agent_id} is listed twice")
         else:
@@ -126,6 +132,10 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     image = _get(env, "WORKER_IMAGE") or DEFAULT_IMAGE
     if re.search(r"\s", image):
         problems.append("WORKER_IMAGE must not contain whitespace")
+
+    codex_image = _get(env, "CODEX_WORKER_IMAGE") or "eris-codex:latest"
+    if re.search(r"\s", codex_image):
+        problems.append("CODEX_WORKER_IMAGE must not contain whitespace")
 
     turns = DEFAULT_MAX_TURNS
     raw_turns = _get(env, "CLAUDE_MAX_TURNS")
@@ -142,12 +152,13 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     stream_log = (HARNESS_DIR / raw_log).resolve() if raw_log else None
 
     secret_name = next((n for n in SECRET_NAMES if _get(env, n)), None)
-    if real and secret_name is None:
+    if any(known_agents[a] == "claude-code" for a in real) and secret_name is None:
         problems.append("REAL_WORKERS needs CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in harness/.env")
 
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
-    return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log)
+    return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log, codex_image,
+                    {a: known_agents[a] for a in real})
 
 
 def main() -> int:
