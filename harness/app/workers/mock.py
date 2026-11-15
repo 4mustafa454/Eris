@@ -64,26 +64,32 @@ QUEUE_CHANCE = 0.15  # per tick: a "user" adds a task for the agent that just mo
 IDLE_NEW_TASK_CHANCE = 0.5  # per tick on a done agent with an empty queue
 
 
-def seed_agents(conn: sqlite3.Connection) -> None:
-    """Idempotent. Order respects foreign keys: agents (task_id NULL) → tasks → link."""
+def seed_agents(conn: sqlite3.Connection, real=()) -> None:
+    """Idempotent. Order respects foreign keys: agents (task_id NULL) → tasks → link.
+
+    Agents listed in `real` (REAL_WORKERS) are seeded `idle` with no task and no events: a real worker has nothing to
+    show until it is given a task.
+    """
     if conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]:
         return
     now = db.utcnow()
+    mocked = [s for s in SEED if s["id"] not in real]
     conn.execute("BEGIN")
     try:
         for s in SEED:
+            state, summary = ("idle", None) if s["id"] in real else (s["state"], s["summary"])
             conn.execute(
                 "INSERT INTO agents (id, name, color, engine, state, task_id, summary, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
-                (s["id"], s["name"], s["color"], s["engine"], s["state"], s["summary"], now),
+                (s["id"], s["name"], s["color"], s["engine"], state, summary, now),
             )
-        for s in SEED:
+        for s in mocked:
             conn.execute(
                 "INSERT INTO tasks (id, agent_id, title, instruction, status, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (s["task_id"], s["id"], s["title"], s["instruction"], s["state"], now, now),
             )
-        for s in SEED:
+        for s in mocked:
             conn.execute("UPDATE agents SET task_id = ? WHERE id = ?", (s["task_id"], s["id"]))
             for line in s["lines"]:
                 agents.add_event(conn, s["id"], "line", line)
@@ -118,12 +124,15 @@ def enqueue_task(conn: sqlite3.Connection, agent_id: str, rng, now: str) -> tupl
     return task_id, title, status
 
 
-def tick_once(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
-    """Advance one random agent a single step, atomically. Returns the agent id that moved."""
+def tick_once(conn: sqlite3.Connection, rng: random.Random | None = None, skip=frozenset()) -> str | None:
+    """Advance one random mock agent a single step, atomically. Returns the agent id that moved.
+
+    Agents in `skip` (the real workers) are never touched. Returns None if there is no mock agent to move.
+    """
     rng = rng or random
     conn.execute("BEGIN")
     try:
-        aid = _tick(conn, rng)
+        aid = _tick(conn, rng, skip)
         conn.execute("COMMIT")
         return aid
     except Exception:
@@ -131,8 +140,11 @@ def tick_once(conn: sqlite3.Connection, rng: random.Random | None = None) -> str
         raise
 
 
-def _tick(conn: sqlite3.Connection, rng) -> str:
-    agent = rng.choice(conn.execute("SELECT * FROM agents ORDER BY id").fetchall())
+def _tick(conn: sqlite3.Connection, rng, skip=frozenset()) -> str | None:
+    candidates = [a for a in conn.execute("SELECT * FROM agents ORDER BY id").fetchall() if a["id"] not in skip]
+    if not candidates:
+        return None
+    agent = rng.choice(candidates)
     aid, state = agent["id"], agent["state"]
     now = db.utcnow()
 
@@ -171,13 +183,13 @@ def ticker_interval() -> float:
         return 4.0
 
 
-async def run_ticker(interval: float | None = None) -> None:
-    """Background loop for the app lifespan; cancelled on shutdown."""
+async def run_ticker(interval: float | None = None, skip=frozenset()) -> None:
+    """Background loop for the app lifespan; cancelled on shutdown. `skip`: real workers the ticker must not touch."""
     interval = interval or ticker_interval()
     while True:
         await asyncio.sleep(interval)
         conn = db.connect()
         try:
-            tick_once(conn)
+            tick_once(conn, skip=skip)
         finally:
             conn.close()

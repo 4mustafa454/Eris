@@ -38,7 +38,7 @@ class Settings:
 def load_env_file(path: Path | str | None = None, env=None) -> None:
     """Read KEY=VALUE lines from harness/.env into the environment. Variables already set win. No dependency."""
     env = os.environ if env is None else env
-    p = Path(path) if path else HARNESS_DIR / ".env"
+    p = Path(path) if path else Path(env.get("ERIS_ENV_FILE") or HARNESS_DIR / ".env")  # ERIS_ENV_FILE: tests point it away
     try:
         text = p.read_text()
     except OSError:

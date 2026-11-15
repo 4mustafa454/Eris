@@ -46,7 +46,15 @@ def _clean(text: str) -> str:
 
 
 def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    """Cut to `limit` characters with an ellipsis, at a word boundary when that keeps at least half the text."""
+    if len(text) <= limit:
+        return text
+    head = text[: limit - 1]
+    if not text[limit - 1].isspace() and " " in head:
+        whole_words = head.rsplit(" ", 1)[0]
+        if len(whole_words) >= limit // 2:
+            head = whole_words
+    return head.rstrip(" ,;:") + "…"
 
 
 def first_sentence(text: str, limit: int = MAX_LINE) -> str:
@@ -117,12 +125,12 @@ class StreamParser:
         except Exception:  # a parser must never take the run down
             return Update()
         update.alive = True
-        update.lines = [ln for ln in (self._redact(_cut(_clean(ln), MAX_LINE)) for ln in update.lines) if ln]
+        update.lines = [ln for ln in (self.redact(_cut(_clean(ln), MAX_LINE)) for ln in update.lines) if ln]
         if update.summary:
-            update.summary = self._redact(update.summary)
+            update.summary = self.redact(update.summary)
         if update.result:
             r = update.result
-            r.text, r.reason, r.summary = self._redact(r.text), self._redact(r.reason), self._redact(r.summary)
+            r.text, r.reason, r.summary = self.redact(r.text), self.redact(r.reason), self.redact(r.summary)
         return update
 
     def finish(self, exit_code: int | None) -> Result:
@@ -131,11 +139,11 @@ class StreamParser:
             return self.result
         why = f"the worker exited without a result (exit code {exit_code})" if exit_code is not None else \
             "the worker stopped without a result"
-        return Result("error", why, why)
+        return Result("error", self.redact(why), self.redact(why))
 
     # -- internals ------------------------------------------------------------------------------------------------
 
-    def _redact(self, text):
+    def redact(self, text):
         if not text:
             return text
         for s in self._secrets:

@@ -265,3 +265,18 @@ def test_first_sentence():
     assert first_sentence("no punctuation here") == "no punctuation here"
     assert len(first_sentence("word " * 100)) <= MAX_LINE
     assert first_sentence("  multi\nline\ttext. Next.") == "multi line text."
+
+
+def test_cuts_prefer_a_word_boundary_but_never_throw_away_most_of_the_text():
+    from app.workers.stream import _cut
+    assert _cut("alpha beta gamma delta", 15) == "alpha beta…"          # not "alpha beta gam…"
+    assert _cut("alpha beta gamma delta", 22) == "alpha beta gamma delta"
+    assert _cut("x" * 50, 20) == "x" * 19 + "…"                          # no space: a hard cut
+    assert _cut("a " + "x" * 50, 20) == "a " + "x" * 17 + "…"            # the only boundary would keep almost nothing
+    assert _cut("run pytest tests", 12).endswith("…") and len(_cut("run pytest tests", 12)) <= 12
+
+
+def test_finish_redacts_what_it_returns():
+    p = StreamParser([SECRET])
+    assert SECRET not in p.finish(1).reason
+    assert p.redact(f"a {SECRET} b {SECRET}") == "a [redacted] b [redacted]" and p.redact("") == ""
