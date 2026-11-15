@@ -23,7 +23,7 @@ const every = (fn, ms) => { const timer = setInterval(fn, ms); return () => clea
  * @param {{
  *   room: { localParticipant: { publishTrack(track: any, options: any): Promise<{ sid?: string }>, unpublishTrack(sid: string): Promise<void> } },
  *   harness: object, harnessUrl?: string,
- *   video: { fps: number, width: number, height: number },
+ *   video: { fps: number, width: number, height: number, safe?: { top: number, bottom: number } },
  *   rtc?: typeof livekitRtc, createLoop?: typeof startRenderLoop,
  *   log?: Pick<Console, 'info' | 'warn'>,
  *   publishTimeoutMs?: number, statsEveryMs?: number,
@@ -37,7 +37,7 @@ export async function startTeamVideo({
   publishTimeoutMs = 5000, statsEveryMs = 15000, every: schedule = every,
   cpuUsage = () => process.cpuUsage(), clock = () => performance.now(),
 }) {
-  const { fps, width, height } = video;
+  const { fps, width, height, safe } = video;
   let loop = null;
   let source = null;
   let publication = null;
@@ -47,7 +47,7 @@ export async function startTeamVideo({
   };
 
   try {
-    loop = await createLoop({ harness, harnessUrl, width, height, log });
+    loop = await createLoop({ harness, harnessUrl, width, height, safe, log });
     cleanups.push(() => loop.stop());
     // Bounded: a slow harness must not hold up the greeting. The loop draws the "unreachable" frame by itself.
     await withTimeout(loop.ready, publishTimeoutMs, 'first frame');

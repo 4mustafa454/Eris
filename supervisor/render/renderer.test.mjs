@@ -124,11 +124,11 @@ test('portrait 1080×1920: buffer, PNG and JPEG sizes; the three tiles stack wit
     const img = await loadImage(buf);
     assert.deepEqual([img.width, img.height], [1080, 1920], name);
   }
-  // tiles are 597 high with a 24 gap from y=40: stripes (x 40..48) at 40..637, 661..1258, 1282..1879
+  // safe area 120..1660: tiles are 497 high with a 24 gap, stripes (x 40..48) at 120..617, 641..1138, 1162..1659
   assert.deepEqual(pixel(rgba, 1080, 44, 300), [0x7f, 0x77, 0xdd], 'Agent 1');
   assert.deepEqual(pixel(rgba, 1080, 44, 900), [0x1d, 0x9e, 0x75], 'Agent 2');
   assert.deepEqual(pixel(rgba, 1080, 44, 1500), [0xd8, 0x5a, 0x30], 'Agent 3');
-  assert.deepEqual(pixel(rgba, 1080, 44, 650), [0x11, 0x14, 0x18], 'background in the gap between tiles');
+  assert.deepEqual(pixel(rgba, 1080, 44, 629), [0x11, 0x14, 0x18], 'background in the gap between tiles');
   writeFileSync(`${OUT}three-grid-portrait.png`, r.png());
 });
 
@@ -177,4 +177,53 @@ test('portrait render time stays under 30 ms (median of 10 forced redraws)', () 
     console.log(`  portrait ${name} render: median ${times[5].toFixed(1)} ms, max ${times[9].toFixed(1)} ms`);
     assert.ok(times[5] < 30, `${name} median ${times[5]} ms`);
   }
+});
+
+// --- portrait safe area, checked on real pixels ------------------------------------------------------------------
+
+const BG = [0x11, 0x14, 0x18];
+
+/** Every row above `top` and below `bottom` (physical px) is pure background, edge to edge. */
+function assertBands(rgba, w, h, top, bottom, label) {
+  for (let y = 0; y < h; y++) {
+    if (y >= top && y < bottom) continue;
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      if (rgba[i] !== BG[0] || rgba[i + 1] !== BG[1] || rgba[i + 2] !== BG[2]) assert.fail(`${label}: pixel (${x}, ${y}) is not background, inside a safe-area band`);
+    }
+  }
+}
+
+for (const [w, h] of [[1080, 1920], [720, 1280]]) {
+  test(`portrait ${w}×${h}: the top 120 and bottom 260 (1080p scale) are empty background in every grid and focus frame`, () => {
+    const scale = w / 1080;
+    // rows [top, bottom) may hold content; every other row is checked. One pixel of slack at each edge of the
+    // safe area for anti-aliasing, so the first and last allowed rows are not asserted on.
+    const top = Math.floor(120 * scale) - 1;
+    const bottom = Math.ceil((1920 - 260) * scale) + 1;
+    const r = createRenderer({ width: w, height: h, log: { warn() {} } });
+    for (const [name, m] of Object.entries(MODELS)) {
+      r.render({ mode: 'grid', harness: 'ok', ...m });
+      assertBands(r.render({ mode: 'grid', harness: 'ok', ...m }).rgba, w, h, top, bottom, `${name} grid`);
+      for (const a of m.agents) {
+        assertBands(r.render({ mode: 'focus', focusId: a.id, harness: 'ok', ...m }).rgba, w, h, top, bottom, `${name} focus ${a.id}`);
+      }
+    }
+  });
+}
+
+test('a custom safe area reaches the pixels, and the content really does use the space inside it', () => {
+  const r = createRenderer({ width: 1080, height: 1920, safe: { top: 300, bottom: 100 }, log: { warn() {} } });
+  const { rgba } = r.render(grid());
+  assertBands(rgba, 1080, 1920, 300 - 1, 1920 - 100 + 1, 'custom');
+  assert.deepEqual(pixel(rgba, 1080, 44, 400), [0x7f, 0x77, 0xdd], 'tile 1 starts at the new top');
+  assert.notDeepEqual(pixel(rgba, 1080, 44, 250), [0x7f, 0x77, 0xdd]);
+  const wide = createRenderer({ width: 1080, height: 1920, safe: { top: 0, bottom: 0 }, log: { warn() {} } });
+  assert.notDeepEqual(wide.render(grid()).rgba.subarray(0, 400000), r.render(grid()).rgba.subarray(0, 400000), 'zero insets draw into the top band');
+});
+
+test('safe-area samples: portrait frames are written for inspection', () => {
+  const r = createRenderer({ width: 1080, height: 1920, log: { warn() {} } });
+  r.render(grid('long'));
+  writeFileSync(`${OUT}long-grid-portrait-safe.png`, r.png());
 });

@@ -10,8 +10,8 @@ import { startRenderLoop } from './index.mjs';
 const harnessUrl = process.env.HARNESS_URL || 'http://localhost:8787';
 const port = Number(process.env.FRAME_PORT || 8788);
 // Same size as the call video (VIDEO_ORIENTATION / VIDEO_RESOLUTION; portrait 1080×1920 by default).
-const { width, height } = loadVideoConfig(process.env);
-const loop = await startRenderLoop({ harness: createHarness({ baseUrl: harnessUrl }), harnessUrl, port, width, height });
+const { width, height, safe } = loadVideoConfig(process.env);
+const loop = await startRenderLoop({ harness: createHarness({ baseUrl: harnessUrl }), harnessUrl, port, width, height, safe });
 if (loop.port === null) { console.error(`port ${port} is in use; is another frame server running?`); process.exit(1); }
 
 const keepAlive = setInterval(() => {}, 1 << 30); // the poller and server are unref'd, so hold the process open

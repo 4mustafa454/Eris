@@ -5,6 +5,13 @@ export const PORTRAIT = { width: 1080, height: 1920 };
 export const WIDTH = LANDSCAPE.width;
 export const HEIGHT = LANDSCAPE.height;
 export const isPortrait = frame => frame.height > frame.width;
+// Portrait only: FaceTime draws its own controls over the top and bottom of the picture. Values are in logical
+// px (1080×1920), so the 720p fallback scales them. Configurable with VIDEO_SAFE_TOP / VIDEO_SAFE_BOTTOM.
+export const DEFAULT_SAFE = { top: 120, bottom: 260 };
+// The caller's self-view floats in a corner: keep text out of a box about its size in the two right-hand corners of
+// the safe area (FaceTime's default side). CORNER_GAP is the breathing room between text and that box.
+export const CORNER = { width: 300, height: 360 };
+export const CORNER_GAP = 16;
 export const orientationOf = (width, height) => (height > width ? 'portrait' : 'landscape');
 export const frameFor = orientation => (orientation === 'portrait' ? PORTRAIT : LANDSCAPE);
 export const MIN_GRID_PX = 28;

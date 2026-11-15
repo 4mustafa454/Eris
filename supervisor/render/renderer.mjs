@@ -20,11 +20,12 @@ function rect(ctx, o) {
 }
 
 /**
- * @param {{ width?: number, height?: number, log?: Pick<Console,'warn'> }} [options]  1920×1080 / 1280×720 (landscape) or 1080×1920 / 720×1280 (portrait)
+ * @param {{ width?: number, height?: number, safe?: { top: number, bottom: number }, log?: Pick<Console,'warn'> }} [options]  1920×1080 / 1280×720 (landscape) or 1080×1920 / 720×1280 (portrait)
  */
-export function createRenderer({ width = WIDTH, height = HEIGHT, log = console } = {}) {
+export function createRenderer({ width = WIDTH, height = HEIGHT, safe, log = console } = {}) {
   registerFonts();
-  const frame = frameFor(orientationOf(width, height)); // logical size: 1920×1080 or 1080×1920
+  // Logical size: 1920×1080 or 1080×1920. `safe` ({ top, bottom }, logical px) is portrait-only; default in theme.mjs.
+  const frame = { ...frameFor(orientationOf(width, height)), ...(safe && { safe }) };
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
   ctx.textBaseline = 'top';

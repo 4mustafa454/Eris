@@ -6,11 +6,11 @@ import { createRenderer } from './renderer.mjs';
 
 /**
  * @param {{ harness: object, harnessUrl?: string, port?: number, intervalMs?: number, logLines?: number,
- *           width?: number, height?: number, serve?: boolean, log?: Pick<Console,'warn'|'info'> }} options
+ *           width?: number, height?: number, safe?: { top: number, bottom: number }, serve?: boolean, log?: Pick<Console,'warn'|'info'> }} options
  *   port: frame.jpg port (default 8788; 0 = any free port). serve:false skips the HTTP server.
  */
-export async function startRenderLoop({ harness, harnessUrl, port = 8788, intervalMs = 500, logLines = 10, width, height, serve = true, log = console }) {
-  const renderer = createRenderer({ width, height, log });
+export async function startRenderLoop({ harness, harnessUrl, port = 8788, intervalMs = 500, logLines = 10, width, height, safe, serve = true, log = console }) {
+  const renderer = createRenderer({ width, height, safe, log });
   const poller = createPoller({ harness, harnessUrl, intervalMs, logLines, onModel: model => renderer.render(model) });
   const server = serve ? await startFrameServer({ port, getJpeg: () => renderer.jpeg(), log }) : null;
 
