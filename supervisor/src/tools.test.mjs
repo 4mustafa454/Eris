@@ -9,7 +9,13 @@ const AGENTS = [
   { id: 'agent-2', name: 'Agent 2', color: '#1D9E75', engine: 'claude-code', state: 'working', task: 'Write tests', summary: 'Running pytest', stuck_reason: null, updated_at: 't' },
 ];
 
-function setup(overrides = {}) {
+/** A fake video: records mode switches, and knows which agents the renderer last drew. */
+function fakeDisplay(agents = AGENTS) {
+  const modes = [];
+  return { modes, setMode: (...args) => modes.push(args), snapshot: () => ({ agents }) };
+}
+
+function setup(overrides = {}, display) {
   const calls = [];
   const actions = [];
   const harness = {
@@ -23,7 +29,7 @@ function setup(overrides = {}) {
     getLog: async (id, lines) => { calls.push(['getLog', id, lines]); return { lines: ['run pytest → 2 failed', 'edit signup.py'] }; },
     ...overrides,
   };
-  const tools = buildTools({ harness, log: { action: a => actions.push(a) } });
+  const tools = buildTools({ harness, log: { action: a => actions.push(a) }, display });
   const run = (name, args) => tools[name].execute(args, { ctx: {}, toolCallId: 't1' });
   return { tools, run, calls, actions };
 }
@@ -108,14 +114,64 @@ test('mutating tools answer "not available yet" and log nothing (the harness log
   assert.deepEqual(actions, []);
 });
 
-test('read-only/display stubs answer "not available yet" and are logged once each', async () => {
+test('the read-only stub (search_history) answers "not available yet" and is logged once', async () => {
   const { run, calls, actions } = setup();
-  for (const name of ['show_grid', 'focus_agent', 'search_history']) {
-    assert.equal(await run(name, { n: 1, query: 'x' }), 'not available yet', name);
-  }
+  assert.equal(await run('search_history', { query: 'x' }), 'not available yet');
   assert.deepEqual(calls, []);
-  assert.deepEqual(actions.map(a => a.tool), ['show_grid', 'focus_agent', 'search_history']);
-  assert.ok(actions.every(a => a.result.available === false));
+  assert.deepEqual(actions.map(a => a.tool), ['search_history']);
+  assert.deepEqual(actions[0].result, { available: false });
+});
+
+test('show_grid switches the video to the grid and is logged once', async () => {
+  const display = fakeDisplay();
+  const { run, actions } = setup({}, display);
+  const result = await run('show_grid', {});
+  assert.deepEqual(display.modes, [['grid']]);
+  assert.ok(result.showing);
+  assert.deepEqual(actions.map(a => a.tool), ['show_grid']);
+  assert.equal(actions[0].agent_id, undefined);
+  assert.deepEqual(actions[0].result, result);
+});
+
+test('focus_agent switches to that agent, and logs the call with its agent_id', async () => {
+  const display = fakeDisplay();
+  const { run, actions, calls } = setup({}, display);
+  for (const n of [2, '2']) assert.equal((await run('focus_agent', { n })).showing, 'Agent 2, full screen');
+  assert.deepEqual(display.modes, [['focus', 'agent-2'], ['focus', 'agent-2']]);
+  assert.deepEqual(actions.map(a => [a.tool, a.agent_id, a.args]), [['focus_agent', 'agent-2', { n: 2 }], ['focus_agent', 'agent-2', { n: '2' }]]);
+  assert.deepEqual(calls, [], 'the drawn list decided; the harness was not asked');
+});
+
+test('focus_agent on an agent that is not there: "There\'s no agent N.", no mode change, logged without an agent_id', async () => {
+  const display = fakeDisplay();
+  const { run, actions } = setup({}, display);
+  for (const n of [9, 0, -1, 'x']) assert.deepEqual(await run('focus_agent', { n }), { error: `There's no agent ${n}.` }, String(n));
+  assert.deepEqual(display.modes, []);
+  assert.equal(actions.length, 4);
+  assert.ok(actions.every(a => a.tool === 'focus_agent' && a.agent_id === undefined && a.result.error));
+});
+
+test('focus_agent asks the harness only when nothing has been drawn yet; a 404 there is also "no agent"', async () => {
+  const display = fakeDisplay([]);
+  const { run, calls } = setup({}, display);
+  assert.equal((await run('focus_agent', { n: 1 })).showing, 'Agent 1, full screen');
+  assert.deepEqual(await run('focus_agent', { n: 7 }), { error: "There's no agent 7." });
+  assert.deepEqual(calls, [['getAgent', 'agent-1'], ['getAgent', 'agent-7']]);
+  assert.deepEqual(display.modes, [['focus', 'agent-1']]);
+});
+
+test('focus_agent when the harness is down and nothing was drawn gives the "can\'t reach the team" answer', async () => {
+  const display = fakeDisplay([]);
+  const { run } = setup({ getAgent: async () => { throw new HarnessError('unreachable'); } }, display);
+  assert.deepEqual(await run('focus_agent', { n: 1 }), { error: "I can't reach the team right now." });
+  assert.deepEqual(display.modes, []);
+});
+
+test('without video on this call, show_grid and focus_agent say so and change nothing', async () => {
+  const { run, actions } = setup();
+  assert.deepEqual(await run('show_grid', {}), { error: "The video isn't available on this call." });
+  assert.deepEqual(await run('focus_agent', { n: 1 }), { error: "The video isn't available on this call." });
+  assert.equal(actions.length, 2);
 });
 
 test('no tool throws, whatever the arguments', async () => {
