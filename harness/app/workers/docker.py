@@ -109,7 +109,9 @@ def top_argv(agent_id: str) -> list[str]:
 
 
 def inspect_argv(agent_id: str) -> list[str]:
-    return ["docker", "inspect", "--format", "{{.State.Running}}", container_name(agent_id)]
+    return ["docker", "inspect", "--format",
+            '{{.State.Running}} {{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}',
+            container_name(agent_id)]
 
 
 def remove_argv(agent_id: str) -> list[str]:
@@ -192,9 +194,13 @@ class Container:
         if not (repo / ".git").exists():
             raise WorkerError(f"{repo} is not a git repo: run scripts/make-demo-repo.sh")
         state = await self.runner.run(inspect_argv(self.agent_id))
-        if state.rc == 0 and state.out.strip() == "true":
-            return
-        if state.rc == 0:  # exists but stopped
+        if state.rc == 0:
+            parts = state.out.strip().split(maxsplit=1)
+            if len(parts) != 2 or parts[0] not in ("true", "false") or Path(parts[1]).resolve() != repo.resolve():
+                raise WorkerError(f"{container_name(self.agent_id)} has the wrong workspace; remove and recreate it before use")
+            if parts[0] == "true":
+                return
+            # Exists but stopped, and its workspace is the expected isolated clone.
             started = await self.runner.run(["docker", "start", container_name(self.agent_id)])
             if started.rc != 0:
                 raise WorkerError(f"could not start {container_name(self.agent_id)}: {started.err.strip()[:200]}")

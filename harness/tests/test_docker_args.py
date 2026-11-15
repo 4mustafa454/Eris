@@ -315,18 +315,26 @@ def repo(tmp_path):
 
 
 def test_ensure_is_a_noop_for_a_running_container(repo):
-    r = Script((["docker", "inspect"], Ran(0, "true\n")))
+    r = Script((["docker", "inspect"], Ran(0, f"true {d.workspace_path('agent-1', repo)}\n")))
     asyncio.run(Container("agent-1", repo, r).ensure())
     assert [c[1] for c in r.calls] == ["inspect"]
 
 
 def test_ensure_starts_a_stopped_container_and_creates_a_missing_one(repo):
-    r = Script((["docker", "inspect"], Ran(0, "false\n")), (["docker", "start"], Ran(0)))
+    r = Script((["docker", "inspect"], Ran(0, f"false {d.workspace_path('agent-1', repo)}\n")), (["docker", "start"], Ran(0)))
     asyncio.run(Container("agent-1", repo, r).ensure())
     assert [c[1] for c in r.calls] == ["inspect", "start"]
     r = Script((["docker", "inspect"], Ran(1, "", "No such object")), (["docker", "run"], Ran(0, "abc123\n")))
     asyncio.run(Container("agent-1", repo, r, uid=1000, gid=1000).ensure())
     assert r.calls[1] == d.create_argv("agent-1", repo, 1000, 1000)
+
+
+def test_ensure_rejects_existing_container_with_a_different_workspace(repo):
+    for running in ('true', 'false'):
+        r = Script((["docker", "inspect"], Ran(0, f"{running} {repo.demo_repo}\n")))
+        with pytest.raises(WorkerError, match="wrong workspace"):
+            asyncio.run(Container("agent-1", repo, r).ensure())
+        assert [call[1] for call in r.calls] == ['inspect']
 
 
 def test_ensure_reports_a_missing_demo_repo_and_docker_failures_without_leaking(repo, tmp_path):
