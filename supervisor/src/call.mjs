@@ -21,20 +21,27 @@ const EMPTY_CONTEXT = { recent_summaries: [], agents: [], open_tasks: [], pendin
  *   harness: ReturnType<typeof import('./harness.mjs').createHarness>,
  *   createProviders: () => { stt: any, tts: any, llm: any },
  *   vad: any,
+ *   startVideo?: (room: any) => Promise<null | { setMode(mode: string, agentId?: string): void, snapshot(): any, stop(): Promise<void> }>,
  *   voice?: typeof livekitVoice,
  *   log?: Pick<Console, 'info' | 'warn' | 'error'>,
  * }} deps
  */
-export async function handleCall(ctx, { config, harness, createProviders, vad, voice = livekitVoice, log = console }) {
+export async function handleCall(ctx, { config, harness, createProviders, vad, startVideo, voice = livekitVoice, log = console }) {
   // Join promptly so Chert can find us; open nothing paid until a caller exists (doctor jobs never get one).
   await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
   const caller = await ctx.waitForParticipant();
 
   const providers = createProviders();
-  const [session, context] = await Promise.all([
+  // The team view is published here, in parallel with the session and context fetches but before the PM starts
+  // and before any greeting. It is bounded and never throws: with no video the call is audio only.
+  const [session, context, video] = await Promise.all([
     harness.createSession('facetime').catch(error => { log.warn(`[eris] no session logging: ${error.message}`); return null; }),
     harness.getContext().catch(error => { log.warn(`[eris] team status unavailable: ${error.message}`); return null; }),
+    startVideo
+      ? startVideo(ctx.room).catch(error => { log.warn(`[eris] video unavailable, continuing with audio only: ${error.message}`); return null; })
+      : null,
   ]);
+  video?.setMode('grid'); // every call starts on the grid
   const logger = createSessionLogger(harness, session?.id, error => log.warn(`[eris] logging failed: ${error.message}`));
   const instructions = renderPrompt(context ?? EMPTY_CONTEXT) + (context ? '' : NO_STATUS_NOTE);
 
@@ -60,7 +67,7 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, v
 
   await agentSession.start({
     room: ctx.room,
-    agent: new voice.Agent({ instructions, tools: buildTools({ harness, log: logger }) }),
+    agent: new voice.Agent({ instructions, tools: buildTools({ harness, log: logger, display: video ?? undefined }) }),
     record: false,
     inputOptions: {
       participantIdentity: caller.identity,
@@ -89,6 +96,7 @@ export async function handleCall(ctx, { config, harness, createProviders, vad, v
   ctx.addShutdownCallback(async () => {
     stopGreeting();
     try { await agentSession.close(); } catch { /* already closed */ }
+    try { await video?.stop(); } catch { /* the room is already gone */ }
     markEnded();
     await logger.flush();
   });

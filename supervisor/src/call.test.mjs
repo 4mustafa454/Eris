@@ -30,10 +30,12 @@ function fakeRoom() {
   };
 }
 
+const order = []; // what happened first: 'video', 'session.start', 'say'
 class FakeSession extends EventEmitter {
   constructor(options) { super(); this.options = options; this.said = []; this.closed = 0; FakeSession.last = this; }
-  async start(options) { this.startOptions = options; }
+  async start(options) { this.startOptions = options; order.push('session.start'); }
   say(text) {
+    order.push('say');
     this.said.push(text);
     // the framework adds the spoken text to the chat context and announces it
     queueMicrotask(() => this.item('assistant', text));
@@ -235,4 +237,73 @@ test('interruption tuning from config reaches the session; without it the defaul
   assert.equal(tuned.turnDetection, 'vad');
   const defaults = await run({ greetOnJoin: false });
   assert.deepEqual(defaults.interruption, { minDuration: 600, minWords: 1, resumeFalseInterruption: true });
+});
+
+/** A fake team video: records mode switches and stop, and "draws" the context's agents. */
+function fakeVideo() {
+  const v = { modes: [], stops: 0 };
+  v.setMode = (...args) => v.modes.push(args);
+  v.snapshot = () => ({ agents: CONTEXT.agents });
+  v.stop = async () => { v.stops += 1; };
+  return v;
+}
+
+async function startWithVideo({ startVideo, identity = 'chert-bridge-c1', harness = fakeHarness() } = {}) {
+  const ctx = fakeCtx(identity);
+  await handleCall(ctx, { config: { greetOnJoin: false }, harness, createProviders: () => ({ stt: {}, tts: {}, llm: {} }), vad: {}, startVideo, voice: fakeVoice, log: silentLog });
+  return { ctx, harness, session: FakeSession.last };
+}
+
+test('video is published from the agent\'s own room, before the PM starts and before the greeting; the call starts on the grid', async () => {
+  order.length = 0;
+  const video = fakeVideo();
+  const rooms = [];
+  const { ctx, session } = await startWithVideo({ startVideo: async room => { rooms.push(room); order.push('video'); return video; } });
+  assert.deepEqual(rooms, [ctx.room], 'the same room (and so the same participant) that carries the audio');
+  assert.deepEqual(video.modes, [['grid']]);
+  ctx.room.setMetadata(READY);
+  await tick(); await tick();
+  assert.deepEqual(order.slice(-3), ['video', 'session.start', 'say']);
+  assert.equal(session.said.length, 1);
+});
+
+test('show_grid and focus_agent on the call switch the video and are logged to the session', async () => {
+  const video = fakeVideo();
+  const { ctx, session, harness } = await startWithVideo({ startVideo: async () => video });
+  const { tools } = session.startOptions.agent.options;
+  await tools.focus_agent.execute({ n: 2 }, { ctx: {}, toolCallId: 't1' });
+  await tools.show_grid.execute({}, { ctx: {}, toolCallId: 't2' });
+  const missing = await tools.focus_agent.execute({ n: 9 }, { ctx: {}, toolCallId: 't3' });
+  assert.deepEqual(video.modes, [['grid'], ['focus', 'agent-2'], ['grid']]);
+  assert.deepEqual(missing, { error: "There's no agent 9." });
+  await ctx.runShutdown();
+  assert.deepEqual(harness.calls.filter(c => c[0] === 'action'), [
+    ['action', 'sess-1', 'focus_agent'], ['action', 'sess-1', 'show_grid'], ['action', 'sess-1', 'focus_agent'],
+  ]);
+});
+
+test('no video (publish failed or startVideo threw): the call still starts and greets, and the tools say so', async () => {
+  for (const startVideo of [async () => null, async () => { throw new Error('boom'); }, undefined]) {
+    order.length = 0;
+    const { ctx, session } = await startWithVideo({ startVideo });
+    ctx.room.setMetadata(READY);
+    await tick(); await tick();
+    assert.equal(session.said.length, 1, 'greeted');
+    const result = await session.startOptions.agent.options.tools.show_grid.execute({}, { ctx: {}, toolCallId: 't' });
+    assert.deepEqual(result, { error: "The video isn't available on this call." });
+  }
+});
+
+test('hangup stops the video once', async () => {
+  const video = fakeVideo();
+  const { ctx } = await startWithVideo({ startVideo: async () => video });
+  await ctx.runShutdown();
+  assert.equal(video.stops, 1);
+});
+
+test('a video that fails to stop cannot break shutdown', async () => {
+  const video = { ...fakeVideo(), stop: async () => { throw new Error('room gone'); } };
+  const { ctx, harness } = await startWithVideo({ startVideo: async () => video });
+  await ctx.runShutdown();
+  assert.deepEqual(harness.calls.filter(c => c[0] === 'end').length, 1, 'the session was still marked ended');
 });

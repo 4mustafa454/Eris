@@ -37,6 +37,14 @@ const TURN_VARS = {
   vadActivationThreshold: { name: 'VAD_ACTIVATION_THRESHOLD', min: 0.1, max: 0.95 },
 };
 
+/**
+ * Options for silero.VAD.load(). undefined (not { activationThreshold: undefined }, which would override
+ * Silero's default) when there is no config, as under --help.
+ */
+export function buildVadOptions(config) {
+  return config ? { activationThreshold: config.turn.vadActivationThreshold } : undefined;
+}
+
 /** Every env var the interruption tuning reads (for .env.example). */
 export const TURN_ENV = [...Object.values(TURN_VARS).map(v => v.name), 'INTERRUPT_RESUME_FALSE'];
 

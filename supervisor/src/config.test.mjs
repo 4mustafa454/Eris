@@ -4,7 +4,7 @@ import { initializeLogger } from '@livekit/agents';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as openai from '@livekit/agents-plugin-openai';
-import { buildTurnHandling, createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
+import { buildTurnHandling, buildVadOptions, createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
 
 // The plugins log from their constructors; at runtime the LiveKit CLI / chert-rooms.mjs does this first.
 initializeLogger({ pretty: false, level: 'silent' });
@@ -230,4 +230,10 @@ test('bad video values fail startup naming the variable', () => {
   for (const [name, value] of [['VIDEO_FPS', '0'], ['VIDEO_FPS', '31'], ['VIDEO_FPS', '7.5'], ['VIDEO_FPS', 'x'], ['VIDEO_RESOLUTION', '4k'], ['VIDEO_RESOLUTION', '800x600']]) {
     assert.throws(() => loadConfig({ ...base, [name]: value }), new RegExp(name), `${name}=${value}`);
   }
+});
+
+test('VAD options carry the threshold; with no config (--help) they are undefined, not { activationThreshold: undefined }', () => {
+  assert.deepEqual(buildVadOptions(loadConfig(base)), { activationThreshold: 0.6 });
+  assert.deepEqual(buildVadOptions(loadConfig({ ...base, VAD_ACTIVATION_THRESHOLD: '0.8' })), { activationThreshold: 0.8 });
+  assert.equal(buildVadOptions(undefined), undefined);
 });

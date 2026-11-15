@@ -5,8 +5,9 @@ import { defineAgent, voice } from '@livekit/agents';
 import * as silero from '@livekit/agents-plugin-silero';
 import { runAgent } from './chert-rooms.mjs';
 import { handleCall } from './src/call.mjs';
-import { createProviders, describeConfig, loadConfig } from './src/config.mjs';
+import { buildVadOptions, createProviders, describeConfig, loadConfig } from './src/config.mjs';
 import { createHarness } from './src/harness.mjs';
+import { startTeamVideo } from './src/video.mjs';
 
 // Fail fast: a bad provider name or a missing key stops startup with one message naming the variables.
 // (Not for --help, which runs without an env file.)
@@ -22,20 +23,25 @@ if (!process.argv.some(arg => arg === '--help' || arg === '-h')) {
   console.log(
     `[eris] stt=${roles.stt.provider} tts=${roles.tts.provider} llm=${roles.llm.provider} ` +
       `interrupt=${config.turn.minDurationMs}ms/${config.turn.minWords}w vad=${config.turn.vadActivationThreshold} ` +
-      `harness=${config.harnessUrl} greet-on-join=${config.greetOnJoin ? 'on (development)' : 'off'}`,
+      `video=${config.video.width}x${config.video.height}@${config.video.fps} harness=${config.harnessUrl} greet-on-join=${config.greetOnJoin ? 'on (development)' : 'off'}`,
   );
 }
 
 const agent = defineAgent({
   // Loaded once per worker, before any call: the voice activity detector.
-  prewarm: async proc => { proc.userData.vad = await silero.VAD.load({ activationThreshold: config.turn.vadActivationThreshold }); },
-  entry: ctx => handleCall(ctx, {
-    config,
-    harness: createHarness({ baseUrl: config.harnessUrl }),
-    createProviders: () => createProviders(process.env),
-    vad: ctx.proc.userData.vad,
-    voice,
-  }),
+  prewarm: async proc => { proc.userData.vad = await silero.VAD.load(buildVadOptions(config)); },
+  entry: ctx => {
+    const harness = createHarness({ baseUrl: config.harnessUrl });
+    return handleCall(ctx, {
+      config,
+      harness,
+      // Short timeouts: the greeting must not wait on video (Chert ends a silent call 10 s after bridge_ready).
+      startVideo: room => startTeamVideo({ room, harness, harnessUrl: config.harnessUrl, video: config.video, publishTimeoutMs: 3000 }),
+      createProviders: () => createProviders(process.env),
+      vad: ctx.proc.userData.vad,
+      voice,
+    });
+  },
 });
 
 export default agent;
