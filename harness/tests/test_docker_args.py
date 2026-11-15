@@ -8,7 +8,7 @@ from app.config import Settings
 from app.workers import docker as d
 from app.workers.docker import Container, Ran, WorkerError
 
-REPO = Path("/home/ian/Projects/my-agent/demo-repo")
+REPO = Path(__file__).resolve().parents[2] / "demo-repo"
 SETTINGS = Settings(real_workers=("agent-1",), demo_repo=REPO, secret_name="CLAUDE_CODE_OAUTH_TOKEN")
 TOKEN = "sk-ant-oat01-SECRET-VALUE-123"
 

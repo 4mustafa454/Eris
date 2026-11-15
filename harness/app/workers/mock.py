@@ -1,6 +1,6 @@
-"""Mock workers for M0: seeded agents plus an optional MOCK_TICK=1 ticker.
+"""Mock workers: seeded agents plus an optional MOCK_TICK=1 ticker.
 
-Data only. Nothing here changes an interface; M3 replaces this with the Docker manager.
+Data only. Agents listed in REAL_WORKERS are run by the Docker manager instead; the ticker never touches them.
 """
 import asyncio
 import os

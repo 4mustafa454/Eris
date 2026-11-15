@@ -94,7 +94,7 @@ export function createSessionLogger(harness, sessionId, onError = () => {}) {
     sessionId,
     message: (role, text) => { transcript.push({ role, text }); enqueue(() => harness.postMessage(sessionId, role, text)); },
     action: action => { actions.push(action); enqueue(() => harness.postAction(sessionId, action)); },
-    /** Marks the session ended (hangup). Summaries are M4; this only sets ended_at. */
+    /** Marks the session ended (hangup). This only sets ended_at; the summary is written separately. */
     end: () => enqueue(() => harness.patchSession(sessionId, { ended_at: utcNow() })),
     summarize: summarize => enqueue(async () => {
       let recordedActions = [...actions];

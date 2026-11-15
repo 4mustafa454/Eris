@@ -1,4 +1,4 @@
-// Sizes, colours and the state badge table. Text minimums come from AGENTS.md §5.5 / the M2 brief.
+// Sizes, colours and the state badge table. Text minimums come from AGENTS.md §5.5.
 // The layout works in "logical" units: 1920×1080 landscape or 1080×1920 portrait. A smaller canvas (720p) scales it.
 export const LANDSCAPE = { width: 1920, height: 1080 };
 export const PORTRAIT = { width: 1080, height: 1920 };

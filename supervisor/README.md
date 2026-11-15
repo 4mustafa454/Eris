@@ -3,11 +3,10 @@
 The PM voice agent: speech in, the shared PM brain, speech out. It talks to the harness over HTTP and
 logs every call. Contract: `/AGENTS.md`. Chert rules for this folder: `AGENTS.md` here.
 
-Scope so far: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/`, a template greeting on
-`bridge_ready`, every turn and read-only action logged to a session, the team video (M2), and `send_task` and `stop_all`
-(M3: "tell agent 1 to use the v2 endpoint" steers a worker or starts a task; "stop everything" is the kill switch). The
-harness logs the `send_task` action itself. Not yet: approvals, pause/resume and create_task by voice (the PM says "not
-available yet"), and hangup summaries (M4).
+What it does: STT → LLM → TTS pipeline, the shared prompt and tools from `shared/pm/` (all eleven PM tools), a template greeting
+on `bridge_ready` (or, on an alert call the harness placed, one that leads with the reason), every turn and action logged to a
+session, a summary written on hangup, and the team video. Mutating tools ("tell agent 1 to use the v2 endpoint", pause, resume,
+create a task, approve, "stop everything") call the harness, which logs the action itself.
 
 ## Setup
 
@@ -62,8 +61,8 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
    curl -s 'localhost:8787/sessions?limit=1'            # newest session, ended_at set
    curl -s localhost:8787/sessions/<id>                 # transcript in order, actions listed
    ```
-   The transcript starts with the greeting, then both sides of the conversation. The actions are the
-   `get_status` and `explain_agent` calls (plus the stubs that were tried).
+   The transcript starts with the greeting, then both sides of the conversation. The actions are the tool calls the PM made
+   (for example `get_status` and `explain_agent`).
 8. Remove `GREET_ON_JOIN` and restart: no greeting in Agent Console (the silent default).
 9. Stop the harness mid-call: the call keeps going, the video shows the red "HARNESS UNREACHABLE" frame, and the PM says
    it can't reach the team. Start it again: the grid comes back by itself.
@@ -71,9 +70,9 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
     CPU cost of voice plus video including the encoder. If it is high (say over 80%) or the picture stutters, set
     `VIDEO_RESOLUTION=720p` and/or `VIDEO_FPS=10` in `.env.local` and restart.
 
-## Team view renderer (M2)
+## Team view renderer
 
-`render/` draws the team from `GET /agents` and `GET /agents/{id}/log` (polled at 2 Hz): a grid of up to 3 agents, or one
+`render/` draws the team from `GET /agents` and `GET /agents/{id}/log` (polled at 2 Hz): a grid of up to 6 agents (the demo has three), or one
 agent full-frame. The default is **portrait**, 1080×1920 (720×1280 with `VIDEO_RESOLUTION=720p`), because a phone shows
 the agent in a portrait tile and crops a landscape picture to its middle. In portrait the grid stacks the tiles
 vertically at full width. `VIDEO_ORIENTATION=landscape` gives 1920×1080 / 1280×720 with the tiles side by side.

@@ -1,8 +1,8 @@
 # Eris harness
 
-FastAPI + SQLite (WAL, FTS5) on `:8787`. Contract: see `/AGENTS.md` §4–§5. M0 covers the schema,
-mock workers, `/agents`, `/sessions`, `/context`, and the shared PM files in `/shared/pm/`. M3 adds real Claude Code
-workers in Docker, `POST /agents/{id}/task` and `POST /stop-all` (see "Real workers" below).
+FastAPI + SQLite (WAL, FTS5) on `:8787`. Contract: see `/AGENTS.md` §4–§5. It holds the schema, the agents (mock by default, real
+Claude Code and Codex workers in Docker on request; see "Real workers" below), sessions, tasks, approvals, alerts, the web chat and
+settings routes, and loads the shared PM files in `/shared/pm/`.
 
 ## Setup
 
@@ -47,7 +47,7 @@ cd harness
 `/shared/pm/system_prompt.md` and `/shared/pm/tools.json` are loaded by both the harness (`app/pm.py`)
 and the supervisor. The placeholder format is documented at the top of the prompt file.
 
-## Real workers (M3)
+## Real workers
 
 By default every agent is a mock. Set `REAL_WORKERS=agent-1` (comma-separated ids; see `.env.example`) to run those agents as
 real Claude Code workers in Docker. The rest stay mock, and the mock ticker never touches a real agent. A real agent starts
