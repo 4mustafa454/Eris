@@ -17,7 +17,7 @@ DEFAULT_IMAGE = "eris-claude-code:2.1.316"
 DEFAULT_MAX_TURNS = 30
 SECRET_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 # Every variable this module reads, for harness/.env.example (a test keeps the two in step).
-ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
+ENV_NAMES = ("REAL_WORKERS", "WORKER_IMAGE", "CODEX_WORKER_IMAGE", "CODEX_MODEL", "CODEX_REASONING", "NTFY_TOPIC", "CLAUDE_MAX_TURNS", "DEMO_REPO", "ERIS_STREAM_LOG", *SECRET_NAMES)
 
 
 class ConfigError(Exception):
@@ -37,6 +37,7 @@ class Settings:
     engines: dict[str, str] = field(default_factory=dict)
     codex_model: str = "gpt-6.1-terra"
     codex_reasoning: str = "medium"
+    ntfy_topic: str | None = None
 
     def engine_for(self, agent_id: str) -> str:
         return self.engines.get(agent_id, "claude-code")
@@ -145,6 +146,10 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if codex_reasoning not in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
         problems.append("CODEX_REASONING is not a supported reasoning level")
 
+    ntfy_topic = _get(env, "NTFY_TOPIC")
+    if ntfy_topic and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", ntfy_topic):
+        problems.append("NTFY_TOPIC must contain only letters, digits, underscores or hyphens")
+
     turns = DEFAULT_MAX_TURNS
     raw_turns = _get(env, "CLAUDE_MAX_TURNS")
     if raw_turns is not None:
@@ -166,7 +171,7 @@ def load_settings(env=None, known_agents: dict[str, str] | None = None) -> Setti
     if problems:
         raise ConfigError("Invalid harness configuration:\n- " + "\n- ".join(problems))
     return Settings(tuple(real), image, turns, demo_repo, secret_name, stream_log, codex_image,
-                    {a: known_agents[a] for a in real}, codex_model, codex_reasoning)
+                    {a: known_agents[a] for a in real}, codex_model, codex_reasoning, ntfy_topic)
 
 
 def main() -> int:
