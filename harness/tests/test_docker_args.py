@@ -34,7 +34,7 @@ def test_create_argv_has_exactly_two_mounts_the_repo_and_the_agents_own_home():
     argv = d.create_argv("agent-1", SETTINGS, 1000, 1000)
     mounts = pairs(argv, "--mount")
     assert mounts == [
-        f"type=bind,source={REPO},target=/workspace",
+        f"type=bind,source={REPO}/.worktrees/agent-1,target=/workspace",
         "type=volume,source=eris-agent-1-home,target=/home/worker/.claude",
     ]
     forbidden_flags = {"--privileged", "--network", "--net", "-v", "--volume", "--pid", "--ipc", "--uts", "--device",
@@ -43,7 +43,7 @@ def test_create_argv_has_exactly_two_mounts_the_repo_and_the_agents_own_home():
     joined = " ".join(argv)
     assert "docker.sock" not in joined and "--security-opt=" not in joined
     sources = [m.split("source=")[1].split(",")[0] for m in mounts]
-    assert sources == [str(REPO), "eris-agent-1-home"] and str(Path.home()) not in sources, "no host home dir"
+    assert sources == [str(REPO / '.worktrees/agent-1'), "eris-agent-1-home"] and str(Path.home()) not in sources, "no host home dir"
 
 
 def test_create_argv_never_carries_a_secret_not_even_its_name():
@@ -286,7 +286,7 @@ class Script:
 
 @pytest.fixture
 def repo(tmp_path):
-    (tmp_path / ".git").mkdir()
+    (tmp_path / ".worktrees/agent-1/.git").mkdir(parents=True)
     return Settings(real_workers=("agent-1",), demo_repo=tmp_path, secret_name="CLAUDE_CODE_OAUTH_TOKEN")
 
 

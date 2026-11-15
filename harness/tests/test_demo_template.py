@@ -36,6 +36,16 @@ def test_builds_a_git_repo_with_one_commit_and_no_remote(repo):
     assert _run("git", "-C", str(repo), "branch", "--show-current").stdout.strip() == "main"
 
 
+def test_agent_repositories_are_self_contained_and_independent(repo):
+    for name in ("agent-1", "agent-3"):
+        clone = repo / ".worktrees" / name
+        assert (clone / ".git").is_dir()
+        assert _run("git", "-C", str(clone), "branch", "--show-current").stdout.strip() == name
+        assert _run("git", "-C", str(clone), "remote").stdout.strip() == ""
+    (repo / ".worktrees/agent-1/only-one.txt").write_text("isolated")
+    assert not (repo / ".worktrees/agent-3/only-one.txt").exists()
+
+
 def test_exactly_one_test_fails_and_it_is_the_signup_one(repo):
     r = _run(sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", cwd=repo)
     assert r.returncode == 1

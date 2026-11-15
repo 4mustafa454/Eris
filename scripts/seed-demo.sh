@@ -39,7 +39,7 @@ fi
 
 echo "This will:"
 echo "  - delete the database $db (and its -wal/-shm files)"
-echo "  - rebuild $repo from demo-template/ (anything in it is lost)"
+echo "  - rebuild $repo and its agent clones from demo-template/ (anything in them is lost)"
 if [[ $have_docker -eq 1 ]]; then
   echo "  - remove containers: ${containers[*]:-none}"
   echo "  - remove volumes:    ${volumes[*]:-none}"

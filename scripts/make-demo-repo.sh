@@ -21,4 +21,12 @@ cp -r "$root/demo-template/." "$target/"
 git -C "$target" init -q -b main
 git -C "$target" -c user.name="Eris Demo" -c user.email="demo@eris.invalid" add -A
 git -C "$target" -c user.name="Eris Demo" -c user.email="demo@eris.invalid" commit -q -m "Initial commit: shop demo with one failing test"
-echo "demo repo ready: $target (1 commit, 1 failing test, no remote)"
+# Each clone includes its own Git metadata, so it works when mounted on its own in Docker.
+echo '/.worktrees/' >> "$target/.git/info/exclude"
+mkdir -p "$target/.worktrees"
+for agent in agent-1 agent-3; do
+  git clone -q --no-hardlinks "$target" "$target/.worktrees/$agent"
+  git -C "$target/.worktrees/$agent" remote remove origin
+  git -C "$target/.worktrees/$agent" switch -q -c "$agent"
+done
+echo "demo repo ready: $target (isolated agent-1 and agent-3 clones, no remotes)"

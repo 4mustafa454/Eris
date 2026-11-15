@@ -41,6 +41,10 @@ def volume_name(agent_id: str) -> str:
     return f"eris-{agent_id}-home"
 
 
+def workspace_path(agent_id: str, settings: Settings) -> Path:
+    return settings.demo_repo / ".worktrees" / agent_id
+
+
 # --- argv builders (pure) -------------------------------------------------------------------------------------------
 
 def create_argv(agent_id: str, settings: Settings, uid: int, gid: int) -> list[str]:
@@ -55,7 +59,7 @@ def create_argv(agent_id: str, settings: Settings, uid: int, gid: int) -> list[s
         "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges",
         "--memory", MEMORY, "--pids-limit", PIDS_LIMIT, "--cpus", CPUS,
-        "--mount", f"type=bind,source={settings.demo_repo},target={WORKSPACE}",
+        "--mount", f"type=bind,source={workspace_path(agent_id, settings)},target={WORKSPACE}",
         "--mount", f"type=volume,source={volume_name(agent_id)},target={HOME}/.claude",
         settings.worker_image,
         *KEEPALIVE,
@@ -168,7 +172,7 @@ class Container:
 
     async def ensure(self) -> None:
         """The container exists and is running. Creates it (or starts a stopped one). Raises WorkerError with a fix."""
-        repo = Path(self.settings.demo_repo)
+        repo = workspace_path(self.agent_id, self.settings)
         if not (repo / ".git").exists():
             raise WorkerError(f"{repo} is not a git repo: run scripts/make-demo-repo.sh")
         state = await self.runner.run(inspect_argv(self.agent_id))
