@@ -84,13 +84,13 @@ export function buildTurnHandling(turn = TURN_DEFAULTS) {
  * Camera track settings (all optional). Portrait is the default because a phone shows the agent in a portrait tile
  * and crops a landscape picture to its middle. 720p and/or 10 fps are the fallbacks if a call costs too much CPU.
  */
-export const VIDEO_DEFAULTS = { fps: 15, resolution: '1080p', orientation: 'portrait', safe: { top: 120, bottom: 260 } };
+export const VIDEO_DEFAULTS = { fps: 15, resolution: '1080p', orientation: 'portrait', safe: { top: 120, bottom: 260, side: 110 } };
 export const VIDEO_SIZES = {
   portrait: { '1080p': { width: 1080, height: 1920 }, '720p': { width: 720, height: 1280 } },
   landscape: { '1080p': { width: 1920, height: 1080 }, '720p': { width: 1280, height: 720 } },
 };
 /** Every env var the video settings read (for .env.example). */
-export const VIDEO_ENV = ['VIDEO_FPS', 'VIDEO_RESOLUTION', 'VIDEO_ORIENTATION', 'VIDEO_SAFE_TOP', 'VIDEO_SAFE_BOTTOM'];
+export const VIDEO_ENV = ['VIDEO_FPS', 'VIDEO_RESOLUTION', 'VIDEO_ORIENTATION', 'VIDEO_SAFE_TOP', 'VIDEO_SAFE_BOTTOM', 'VIDEO_SAFE_SIDE'];
 /** Largest top+bottom safe area: leaves at least 1020 of 1920 px for the three tiles. */
 const MAX_SAFE_TOTAL = 900;
 
@@ -115,13 +115,14 @@ function readVideo(env, problems) {
     else problems.push(`VIDEO_ORIENTATION must be one of: ${Object.keys(VIDEO_SIZES).join(', ')}`);
   }
   // Safe-area insets in px at 1080×1920 (scaled for 720p by the renderer). Portrait only; ignored in landscape.
+  // top+bottom is capped so the tiles keep their height; each side is capped at 250 (of 1080): beyond ~280 the widest state badge no longer fits between the sides.
   const safe = { ...VIDEO_DEFAULTS.safe };
-  for (const [key, name] of [['top', 'VIDEO_SAFE_TOP'], ['bottom', 'VIDEO_SAFE_BOTTOM']]) {
+  for (const [key, name, max] of [['top', 'VIDEO_SAFE_TOP', 600], ['bottom', 'VIDEO_SAFE_BOTTOM', 600], ['side', 'VIDEO_SAFE_SIDE', 250]]) {
     const raw = get(env, name);
     if (raw === undefined) continue;
     const n = Number(raw);
-    if (Number.isInteger(n) && n >= 0 && n <= 600) safe[key] = n;
-    else problems.push(`${name} must be a whole number of pixels from 0 to 600`);
+    if (Number.isInteger(n) && n >= 0 && n <= max) safe[key] = n;
+    else problems.push(`${name} must be a whole number of pixels from 0 to ${max}`);
   }
   if (safe.top + safe.bottom > MAX_SAFE_TOTAL) problems.push(`VIDEO_SAFE_TOP + VIDEO_SAFE_BOTTOM must be at most ${MAX_SAFE_TOTAL} px (the tiles need the rest)`);
   return { fps, resolution, orientation, safe, ...VIDEO_SIZES[orientation][resolution] };

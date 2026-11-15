@@ -49,8 +49,8 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
 4. Say "What is agent 2 doing?" It calls `explain_agent` and answers in one sentence.
 5. Say "What is agent 7 doing?" It says Agent 7 doesn't exist.
 6. Video: the Agent Console should show the team grid (3 tiles stacked vertically, a portrait picture) as the agent's camera.
-   On an iPhone FaceTime call, nothing should sit under the controls at the bottom or the status bar at the top, and the
-   self-view (bottom right by default) should not cover any text. If it does, adjust `VIDEO_SAFE_TOP` / `VIDEO_SAFE_BOTTOM`. Say "show me agent 2": the picture
+   On an iPhone FaceTime call, nothing should sit under the controls at the bottom or the status bar at the top, or be cropped at the sides, and the
+   self-view (bottom right by default) should not cover any text. If it does, adjust `VIDEO_SAFE_TOP` / `VIDEO_SAFE_BOTTOM` / `VIDEO_SAFE_SIDE`. Say "show me agent 2": the picture
    switches to Agent 2 full screen and the PM answers in one short sentence. "Show me the grid" goes back. "Show me agent 9":
    "There's no agent 9." and the picture does not change. A new call starts on the grid again.
    "Tell agent 1 to use the v2 endpoint" still gets "not available yet" (M3).
@@ -75,11 +75,13 @@ agent full-frame. The default is **portrait**, 1080×1920 (720×1280 with `VIDEO
 the agent in a portrait tile and crops a landscape picture to its middle. In portrait the grid stacks the tiles
 vertically at full width. `VIDEO_ORIENTATION=landscape` gives 1920×1080 / 1280×720 with the tiles side by side.
 
-Portrait keeps everything out of a **safe area**: the top 120 px and bottom 260 px (at 1080×1920; the 720p fallback scales
-them) stay empty, because FaceTime draws its own controls over the picture there. Change them with `VIDEO_SAFE_TOP` and
-`VIDEO_SAFE_BOTTOM` (0 to 600 each, at most 900 together). The three tiles share the safe height, so each shows 4 log
-lines instead of 5; text sizes do not change. Text also stays out of a 300×360 box in each right-hand corner of the safe
-area (FaceTime's default side for the caller's self-view): rows that reach a corner are wrapped or cut earlier. Only the
+Portrait keeps everything out of a **safe area**: the top 120 px, bottom 260 px and each side 110 px (at 1080×1920; the
+720p fallback scales them) stay empty. FaceTime draws its own controls over the top and bottom, and a tall phone screen
+(about 9:19.5) crops the sides of a 1080-wide picture. Change them with `VIDEO_SAFE_TOP`, `VIDEO_SAFE_BOTTOM` (0 to 600
+each, at most 900 together) and `VIDEO_SAFE_SIDE` (0 to 250). The stripes, badges, text and tile panels all stay inside.
+The three tiles share the safe height, so each shows 4 log lines instead of 5; text sizes do not change, and the narrower
+width only cuts or wraps lines earlier. Text also stays out of a 300×360 box in each right-hand corner of the safe area
+(FaceTime's default side for the caller's self-view): rows that reach a corner are wrapped or cut earlier. Only the
 right-hand corners are protected; if the self-view is dragged to a left corner it can cover the start of a line.
 Landscape has no safe area. It redraws only when what is
 drawn changes, and warns if a redraw takes over 30 ms. The renderer needs no keys.
@@ -92,7 +94,7 @@ is running.
 
 ```sh
 npm run render:samples            # PNGs for every fixture and mode, both orientations → render/out/samples/{portrait,landscape}/ (gitignored);
-                                  # portrait-guides/ has the portrait frames with the safe-area bands (red) and corner zones (magenta) drawn on
+                                  # portrait-guides/ has the portrait frames with the safe-area bands (red, all four edges) and corner zones (magenta) drawn on
 npm run render:samples -- --live  # the same from the running harness (HARNESS_URL, default :8787)
 npm run frames                    # serve http://localhost:8788/frame.jpg from the harness; "g" / "f 2" switch mode
 npm run bench:video               # CPU of render + frame hand-off at 1080p/720p and 15/10 fps (no encoder; see its header)

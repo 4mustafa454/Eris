@@ -152,7 +152,7 @@ test('portrait grid: 1, 2, 3 tiles stacked vertically at full width, none overla
   for (const [key, count] of [['one', 1], ['two', 2], ['three', 3], ['six-states', 3], ['long', 3]]) {
     const ps = panels(layoutGrid(grid(MODELS[key]), measure, PORTRAIT));
     assert.equal(ps.length, count, key);
-    assert.ok(ps.every(p => p.x === 40 && p.w === PORTRAIT.width - 80), `${key}: full width`);
+    assert.ok(ps.every(p => p.x === 110 && p.w === PORTRAIT.width - 220), `${key}: full width between the safe sides`);
     ps.slice(1).forEach((p, i) => assert.ok(p.y >= ps[i].y + ps[i].h, `${key}: tile ${i + 2} overlaps the one above`));
     assert.equal(tiles(layoutGrid(grid(MODELS[key]), measure, PORTRAIT)).length, count);
   }
@@ -249,13 +249,15 @@ test('layout() passes the frame through to every view', () => {
 
 // --- portrait safe area and corners ------------------------------------------------------------------------------
 
-const SAFE = { top: 120, bottom: 260 };
+const SAFE = { top: 120, bottom: 260, side: 110 };
 const everything = (ops, frame) => ops.slice(1).map(o => (o.type === 'text'
   ? { x: o.x, y: o.y, w: measure(o.text, o.fontPx, o.bold), h: o.fontPx, text: o.text }
   : { x: o.x, y: o.y, w: o.w, h: o.h })); // ops[0] is the full-frame background
 
 function assertInsideSafe(ops, frame, safe, label) {
   for (const b of everything(ops, frame)) {
+    assert.ok(b.x >= safe.side, `${label}: starts at x=${b.x}, left of the safe side ${safe.side} (${b.text ?? 'rect'})`);
+    assert.ok(b.x + b.w <= frame.width - safe.side, `${label}: ends at x=${b.x + b.w}, right of the safe side ${frame.width - safe.side} (${b.text ?? 'rect'})`);
     assert.ok(b.y >= safe.top, `${label}: starts at y=${b.y}, above the safe top ${safe.top} (${b.text ?? 'rect'})`);
     assert.ok(b.y + b.h <= frame.height - safe.bottom, `${label}: ends at y=${b.y + b.h}, below the safe bottom ${frame.height - safe.bottom} (${b.text ?? 'rect'})`);
   }
@@ -271,14 +273,15 @@ function assertOutOfCorners(ops, frame, label) {
   }
 }
 
-test('portrait defaults: safe area 120 top / 260 bottom; zones are the two right-hand corners inside it', () => {
+test('portrait defaults: safe area 120 top / 260 bottom / 110 each side; zones are the two right-hand corners inside it', () => {
   assert.deepEqual(safeOf(PORTRAIT), SAFE);
-  assert.deepEqual(safeOf({ ...PORTRAIT, safe: { top: 10, bottom: 20 } }), { top: 10, bottom: 20 });
-  assert.deepEqual(safeOf(LANDSCAPE), { top: 0, bottom: 0 }, 'landscape has no safe area');
+  assert.deepEqual(safeOf({ ...PORTRAIT, safe: { top: 10, bottom: 20 } }), { top: 10, bottom: 20, side: 110 }, 'unset insets keep their default');
+  assert.deepEqual(safeOf({ ...PORTRAIT, safe: { side: 0 } }), { top: 120, bottom: 260, side: 0 });
+  assert.deepEqual(safeOf(LANDSCAPE), { top: 0, bottom: 0, side: 0 }, 'landscape has no safe area');
   assert.deepEqual(cornerZones(LANDSCAPE), []);
   const [top, bottom] = cornerZones(PORTRAIT);
-  assert.deepEqual([top.x, top.y, top.w, top.h], [780, 120, 300, 360]);
-  assert.deepEqual([bottom.x, bottom.y + bottom.h], [780, 1920 - 260]);
+  assert.deepEqual([top.x, top.y, top.w, top.h], [1080 - 110 - 300, 120, 300, 360], 'right edge of the zone is the right safe edge');
+  assert.deepEqual([bottom.x, bottom.y + bottom.h], [670, 1920 - 260]);
 });
 
 for (const [name, m] of Object.entries(MODELS)) {
@@ -313,24 +316,25 @@ test('portrait grid: the three tiles share the safe height exactly (120 to 1660)
 test('portrait focus: the colour stripe covers the safe height only', () => {
   const stripe = layoutFocus(focus(MODELS.three, 'agent-2'), measure, PORTRAIT).filter(o => o.type === 'rect' && o.w === 16)[0];
   assert.deepEqual([stripe.y, stripe.y + stripe.h], [120, 1660]);
+  assert.equal(stripe.x, 110, 'and starts at the safe side, not the frame edge');
 });
 
 test('the safe area is configurable through the frame; zero insets give the margin layout back', () => {
-  const custom = { ...PORTRAIT, safe: { top: 200, bottom: 100 } };
+  const custom = { ...PORTRAIT, safe: { top: 200, bottom: 100, side: 50 } };
   for (const ops of [layoutGrid(grid(MODELS.long), measure, custom), layoutFocus(focus(MODELS.long, 'agent-1'), measure, custom)]) {
     assertInsideSafe(ops, custom, custom.safe, 'custom');
     assertOutOfCorners(ops, custom, 'custom');
   }
-  const none = { ...PORTRAIT, safe: { top: 0, bottom: 0 } };
+  const none = { ...PORTRAIT, safe: { top: 0, bottom: 0, side: 0 } };
   const ps = panels(layoutGrid(grid(MODELS.three), measure, none));
-  assert.equal(ps[0].y, 40, 'the 40 px margin still applies');
+  assert.deepEqual([ps[0].x, ps[0].y, ps[0].w], [40, 40, 1000], 'the 40 px margin still applies');
   assert.ok(ps.at(-1).y + ps.at(-1).h <= 1880 && ps.at(-1).y + ps.at(-1).h >= 1878);
   assert.equal(texts(layoutGrid(grid(MODELS.three), measure, none)).filter(o => o.fontPx === 32).length, 5 * 3, 'taller tiles bring the 5th log line back');
   assert.equal(texts(layoutGrid(grid(MODELS.three), measure, PORTRAIT)).filter(o => o.fontPx === 32).length, 4 * 3, 'the default safe area shows 4 per tile');
 });
 
-test('a large safe area still lays out without overflow (900 px total, the configured maximum)', () => {
-  const big = { ...PORTRAIT, safe: { top: 450, bottom: 450 } };
+test('the largest configurable safe area (450 + 450 top/bottom, 250 each side) still fits every state badge and all text', () => {
+  const big = { ...PORTRAIT, safe: { top: 450, bottom: 450, side: 250 } }; // the configured maximums
   for (const [name, m] of Object.entries(MODELS)) {
     assertInsideSafe(layoutGrid(grid(m), measure, big), big, big.safe, `grid ${name}`);
     for (const a of m.agents) assertInsideSafe(layoutFocus(focus(m, a.id), measure, big), big, big.safe, `focus ${name}`);
@@ -338,18 +342,18 @@ test('a large safe area still lays out without overflow (900 px total, the confi
 });
 
 test('landscape ignores the safe area: the same ops with or without insets', () => {
-  const withSafe = { ...LANDSCAPE, safe: { top: 500, bottom: 500 } };
+  const withSafe = { ...LANDSCAPE, safe: { top: 500, bottom: 500, side: 500 } };
   assert.deepEqual(layoutGrid(grid(MODELS.three), measure, withSafe), layoutGrid(grid(MODELS.three), measure));
   assert.deepEqual(layoutFocus(focus(MODELS.three, 'agent-1'), measure, withSafe), layoutFocus(focus(MODELS.three, 'agent-1'), measure));
 });
 
 test('rows that touch a corner zone get less width; rows clear of it keep the full width', () => {
   const full = 900;
-  assert.equal(rowWidth(PORTRAIT, 80, 600, 36, full), full, 'middle of the frame');
-  assert.equal(rowWidth(PORTRAIT, 80, 150, 36, full), 780 - 16 - 80, 'top-right zone');
-  assert.equal(rowWidth(PORTRAIT, 80, 1400, 36, full), 780 - 16 - 80, 'bottom-right zone');
-  assert.equal(rowWidth(PORTRAIT, 80, 115, 36, full), 684, 'a row that only just reaches into the zone counts');
-  assert.equal(rowWidth(LANDSCAPE, 80, 150, 36, full), full, 'landscape has no zones');
+  assert.equal(rowWidth(PORTRAIT, 150, 600, 36, full), full, 'middle of the frame');
+  assert.equal(rowWidth(PORTRAIT, 150, 150, 36, full), 670 - 16 - 150, 'top-right zone');
+  assert.equal(rowWidth(PORTRAIT, 150, 1400, 36, full), 670 - 16 - 150, 'bottom-right zone');
+  assert.equal(rowWidth(PORTRAIT, 150, 115, 36, full), 504, 'a row that only just reaches into the zone counts');
+  assert.equal(rowWidth(LANDSCAPE, 150, 150, 36, full), full, 'landscape has no zones');
 });
 
 test('a long task in the first tile is cut earlier than the same task in the second (corner), both end in an ellipsis', () => {
@@ -367,4 +371,33 @@ test('wrapText takes a width per line', () => {
   const lines = wrapText('alpha beta gamma delta epsilon zeta eta theta', i => (i === 0 ? 300 : 900), 44, 4, measure);
   assert.ok(measure(lines[0], 44) <= 300 && measure(lines[1], 44) <= 900);
   assert.ok(lines[1].split(' ').length > lines[0].split(' ').length, 'the roomier line holds more words');
+});
+
+test('portrait side bands: stripe, badge and text start at the safe side and end before the right one, in every fixture', () => {
+  for (const [name, m] of Object.entries(MODELS)) {
+    const grid = layoutGrid({ mode: 'grid', harness: 'ok', ...m }, measure, PORTRAIT);
+    assert.deepEqual(tiles(grid).map(o => o.x), m.agents.slice(0, 3).map(() => 110), `${name}: grid stripes`);
+    for (const a of m.agents) {
+      const f = layoutFocus(focus(m, a.id), measure, PORTRAIT);
+      assert.equal(f.filter(o => o.type === 'rect' && o.w === 16)[0].x, 110, `${name}: focus stripe`);
+      const badge = f.find(o => o.type === 'rect' && o.radius > 20);
+      assert.ok(badge.x >= 110 && badge.x + badge.w <= 970, `${name}: focus badge`);
+    }
+  }
+});
+
+test('with the side bands the stuck reason still fits in its box without being cut (at the minimum text size)', () => {
+  const stuck = { ...THREE[0], stuck_reason: LONG_REASON };
+  const ops = layoutFocus(focus({ agents: [stuck], logs: logsFor([stuck]) }, 'agent-1'), measure, PORTRAIT);
+  const reason = texts(ops).filter(o => o.fill === '#2a1d00');
+  assert.ok(reason.every(o => o.fontPx >= MIN_FOCUS_PX));
+  assert.ok(reason.length >= 4 && reason.length <= 6, `${reason.length} lines`);
+  assert.ok(!reason.some(o => o.text.endsWith('…')), `cut: ${reason.map(o => o.text).join(' / ')}`);
+  assertInsideSafe(ops, PORTRAIT, SAFE, 'stuck');
+});
+
+test('portrait: narrower content never costs more than the one log line the shorter tiles already dropped', () => {
+  const m = { agents: [THREE[1]], logs: { 'agent-2': Array.from({ length: 40 }, (_, i) => `line ${i}`) } };
+  const lines = texts(layoutGrid(grid(m), measure, PORTRAIT)).filter(o => o.fontPx === 32);
+  assert.equal(lines.length, 4);
 });

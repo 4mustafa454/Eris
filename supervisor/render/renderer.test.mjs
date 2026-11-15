@@ -124,11 +124,13 @@ test('portrait 1080×1920: buffer, PNG and JPEG sizes; the three tiles stack wit
     const img = await loadImage(buf);
     assert.deepEqual([img.width, img.height], [1080, 1920], name);
   }
-  // safe area 120..1660: tiles are 497 high with a 24 gap, stripes (x 40..48) at 120..617, 641..1138, 1162..1659
-  assert.deepEqual(pixel(rgba, 1080, 44, 300), [0x7f, 0x77, 0xdd], 'Agent 1');
-  assert.deepEqual(pixel(rgba, 1080, 44, 900), [0x1d, 0x9e, 0x75], 'Agent 2');
-  assert.deepEqual(pixel(rgba, 1080, 44, 1500), [0xd8, 0x5a, 0x30], 'Agent 3');
-  assert.deepEqual(pixel(rgba, 1080, 44, 629), [0x11, 0x14, 0x18], 'background in the gap between tiles');
+  // safe area 120..1660 and 110 each side: tiles are 497 high with a 24 gap, stripes (x 110..118) at
+  // y 120..617, 641..1138, 1162..1659
+  assert.deepEqual(pixel(rgba, 1080, 114, 300), [0x7f, 0x77, 0xdd], 'Agent 1');
+  assert.deepEqual(pixel(rgba, 1080, 114, 900), [0x1d, 0x9e, 0x75], 'Agent 2');
+  assert.deepEqual(pixel(rgba, 1080, 114, 1500), [0xd8, 0x5a, 0x30], 'Agent 3');
+  assert.deepEqual(pixel(rgba, 1080, 114, 629), [0x11, 0x14, 0x18], 'background in the gap between tiles');
+  assert.deepEqual(pixel(rgba, 1080, 44, 300), [0x11, 0x14, 0x18], 'nothing in the side band where the stripe used to be');
   writeFileSync(`${OUT}three-grid-portrait.png`, r.png());
 });
 
@@ -138,9 +140,11 @@ test('portrait 720×1280 is the same picture scaled by 2/3', async () => {
   assert.equal(rgba.length, 720 * 1280 * 4);
   const img = await loadImage(r.png());
   assert.deepEqual([img.width, img.height], [720, 1280]);
-  assert.deepEqual(pixel(rgba, 720, 29, 200), [0x7f, 0x77, 0xdd], 'Agent 1 stripe');
-  assert.deepEqual(pixel(rgba, 720, 29, 600), [0x1d, 0x9e, 0x75], 'Agent 2 stripe');
-  assert.deepEqual(pixel(rgba, 720, 29, 1000), [0xd8, 0x5a, 0x30], 'Agent 3 stripe');
+  // the stripe is at x 110..118 at 1080 scale: about 73..79 here
+  assert.deepEqual(pixel(rgba, 720, 76, 200), [0x7f, 0x77, 0xdd], 'Agent 1 stripe');
+  assert.deepEqual(pixel(rgba, 720, 76, 600), [0x1d, 0x9e, 0x75], 'Agent 2 stripe');
+  assert.deepEqual(pixel(rgba, 720, 76, 1000), [0xd8, 0x5a, 0x30], 'Agent 3 stripe');
+  assert.deepEqual(pixel(rgba, 720, 29, 200), [0x11, 0x14, 0x18], 'nothing in the side band');
   writeFileSync(`${OUT}three-grid-portrait-720.png`, r.png());
 });
 
@@ -183,43 +187,53 @@ test('portrait render time stays under 30 ms (median of 10 forced redraws)', () 
 
 const BG = [0x11, 0x14, 0x18];
 
-/** Every row above `top` and below `bottom` (physical px) is pure background, edge to edge. */
-function assertBands(rgba, w, h, top, bottom, label) {
+/**
+ * Rows [top, bottom) may hold content; every other row must be pure background edge to edge. In ALL rows, columns
+ * left of `left` and from `right` on must be background too (the side bands).
+ */
+function assertBands(rgba, w, h, { top, bottom, left, right }, label) {
+  const isBg = i => rgba[i] === BG[0] && rgba[i + 1] === BG[1] && rgba[i + 2] === BG[2];
   for (let y = 0; y < h; y++) {
-    if (y >= top && y < bottom) continue;
-    for (let x = 0; x < w; x += 1) {
-      const i = (y * w + x) * 4;
-      if (rgba[i] !== BG[0] || rgba[i + 1] !== BG[1] || rgba[i + 2] !== BG[2]) assert.fail(`${label}: pixel (${x}, ${y}) is not background, inside a safe-area band`);
+    const inBand = y < top || y >= bottom;
+    for (let x = 0; x < w; x++) {
+      if (!inBand && x >= left && x < right) continue;
+      if (!isBg((y * w + x) * 4)) assert.fail(`${label}: pixel (${x}, ${y}) is not background, inside a safe-area band`);
     }
   }
 }
 
 for (const [w, h] of [[1080, 1920], [720, 1280]]) {
-  test(`portrait ${w}×${h}: the top 120 and bottom 260 (1080p scale) are empty background in every grid and focus frame`, () => {
+  test(`portrait ${w}×${h}: the top 120, bottom 260 and sides 110 (1080p scale) are empty background in every grid and focus frame`, () => {
     const scale = w / 1080;
     // rows [top, bottom) may hold content; every other row is checked. One pixel of slack at each edge of the
     // safe area for anti-aliasing, so the first and last allowed rows are not asserted on.
-    const top = Math.floor(120 * scale) - 1;
-    const bottom = Math.ceil((1920 - 260) * scale) + 1;
+    const bands = {
+      top: Math.floor(120 * scale) - 1,
+      bottom: Math.ceil((1920 - 260) * scale) + 1,
+      left: Math.floor(110 * scale) - 1,
+      right: Math.ceil((1080 - 110) * scale) + 1,
+    };
     const r = createRenderer({ width: w, height: h, log: { warn() {} } });
     for (const [name, m] of Object.entries(MODELS)) {
       r.render({ mode: 'grid', harness: 'ok', ...m });
-      assertBands(r.render({ mode: 'grid', harness: 'ok', ...m }).rgba, w, h, top, bottom, `${name} grid`);
+      assertBands(r.render({ mode: 'grid', harness: 'ok', ...m }).rgba, w, h, bands, `${name} grid`);
       for (const a of m.agents) {
-        assertBands(r.render({ mode: 'focus', focusId: a.id, harness: 'ok', ...m }).rgba, w, h, top, bottom, `${name} focus ${a.id}`);
+        assertBands(r.render({ mode: 'focus', focusId: a.id, harness: 'ok', ...m }).rgba, w, h, bands, `${name} focus ${a.id}`);
       }
     }
   });
 }
 
 test('a custom safe area reaches the pixels, and the content really does use the space inside it', () => {
-  const r = createRenderer({ width: 1080, height: 1920, safe: { top: 300, bottom: 100 }, log: { warn() {} } });
+  const r = createRenderer({ width: 1080, height: 1920, safe: { top: 300, bottom: 100, side: 200 }, log: { warn() {} } });
   const { rgba } = r.render(grid());
-  assertBands(rgba, 1080, 1920, 300 - 1, 1920 - 100 + 1, 'custom');
-  assert.deepEqual(pixel(rgba, 1080, 44, 400), [0x7f, 0x77, 0xdd], 'tile 1 starts at the new top');
-  assert.notDeepEqual(pixel(rgba, 1080, 44, 250), [0x7f, 0x77, 0xdd]);
-  const wide = createRenderer({ width: 1080, height: 1920, safe: { top: 0, bottom: 0 }, log: { warn() {} } });
-  assert.notDeepEqual(wide.render(grid()).rgba.subarray(0, 400000), r.render(grid()).rgba.subarray(0, 400000), 'zero insets draw into the top band');
+  assertBands(rgba, 1080, 1920, { top: 300 - 1, bottom: 1920 - 100 + 1, left: 200 - 1, right: 1080 - 200 + 1 }, 'custom');
+  assert.deepEqual(pixel(rgba, 1080, 204, 400), [0x7f, 0x77, 0xdd], 'tile 1 starts at the new top and side');
+  assert.notDeepEqual(pixel(rgba, 1080, 114, 400), [0x7f, 0x77, 0xdd]);
+  assert.notDeepEqual(pixel(rgba, 1080, 204, 250), [0x7f, 0x77, 0xdd]);
+  const wide = createRenderer({ width: 1080, height: 1920, safe: { top: 0, bottom: 0, side: 0 }, log: { warn() {} } });
+  const w = wide.render(grid()).rgba;
+  assert.deepEqual(pixel(w, 1080, 44, 300), [0x7f, 0x77, 0xdd], 'zero insets: the stripe is back at the 40 px margin');
 });
 
 test('safe-area samples: portrait frames are written for inspection', () => {

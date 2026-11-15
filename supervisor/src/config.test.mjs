@@ -221,10 +221,10 @@ test('bad interruption values fail startup naming the variable, alongside any ot
 });
 
 test('video defaults to 15 fps, portrait 1080×1920; env switches orientation and the 720p / 10 fps fallback', () => {
-  assert.deepEqual(loadConfig(base).video, { fps: 15, resolution: '1080p', orientation: 'portrait', safe: { top: 120, bottom: 260 }, width: 1080, height: 1920 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_FPS: '10', VIDEO_RESOLUTION: '720P' }).video, { fps: 10, resolution: '720p', orientation: 'portrait', safe: { top: 120, bottom: 260 }, width: 720, height: 1280 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'Landscape' }).video, { fps: 15, resolution: '1080p', orientation: 'landscape', safe: { top: 120, bottom: 260 }, width: 1920, height: 1080 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'landscape', VIDEO_RESOLUTION: '720p' }).video, { fps: 15, resolution: '720p', orientation: 'landscape', safe: { top: 120, bottom: 260 }, width: 1280, height: 720 });
+  assert.deepEqual(loadConfig(base).video, { fps: 15, resolution: '1080p', orientation: 'portrait', safe: { top: 120, bottom: 260, side: 110 }, width: 1080, height: 1920 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_FPS: '10', VIDEO_RESOLUTION: '720P' }).video, { fps: 10, resolution: '720p', orientation: 'portrait', safe: { top: 120, bottom: 260, side: 110 }, width: 720, height: 1280 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'Landscape' }).video, { fps: 15, resolution: '1080p', orientation: 'landscape', safe: { top: 120, bottom: 260, side: 110 }, width: 1920, height: 1080 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'landscape', VIDEO_RESOLUTION: '720p' }).video, { fps: 15, resolution: '720p', orientation: 'landscape', safe: { top: 120, bottom: 260, side: 110 }, width: 1280, height: 720 });
   assert.equal(loadConfig({ ...base, VIDEO_FPS: '', VIDEO_ORIENTATION: '' }).video.fps, 15);
   assert.equal(loadConfig({ ...base, VIDEO_ORIENTATION: '' }).video.orientation, 'portrait');
 });
@@ -241,23 +241,24 @@ test('loadVideoConfig reads only the video settings, with no provider keys', () 
   assert.throws(() => loadVideoConfig({ VIDEO_ORIENTATION: 'x', VIDEO_FPS: '0' }), /VIDEO_FPS[\s\S]*VIDEO_ORIENTATION/);
 });
 
-test('safe area: 120 top / 260 bottom by default; VIDEO_SAFE_TOP and VIDEO_SAFE_BOTTOM override each, 0 is a real value', () => {
-  assert.deepEqual(loadConfig(base).video.safe, { top: 120, bottom: 260 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '200' }).video.safe, { top: 200, bottom: 260 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_BOTTOM: '300' }).video.safe, { top: 120, bottom: 300 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '0', VIDEO_SAFE_BOTTOM: '0' }).video.safe, { top: 0, bottom: 0 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '', VIDEO_SAFE_BOTTOM: 'YOUR_VALUE' }).video.safe, { top: 120, bottom: 260 });
-  assert.deepEqual(loadVideoConfig({ VIDEO_SAFE_BOTTOM: '400' }).safe, { top: 120, bottom: 400 });
+test('safe area: 120 top / 260 bottom / 110 side by default; each variable overrides only its own value, 0 is a real value', () => {
+  assert.deepEqual(loadConfig(base).video.safe, { top: 120, bottom: 260, side: 110 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '200' }).video.safe, { top: 200, bottom: 260, side: 110 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_BOTTOM: '300' }).video.safe, { top: 120, bottom: 300, side: 110 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_SIDE: '150' }).video.safe, { top: 120, bottom: 260, side: 150 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '0', VIDEO_SAFE_BOTTOM: '0', VIDEO_SAFE_SIDE: '0' }).video.safe, { top: 0, bottom: 0, side: 0 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_SAFE_TOP: '', VIDEO_SAFE_BOTTOM: 'YOUR_VALUE', VIDEO_SAFE_SIDE: '' }).video.safe, { top: 120, bottom: 260, side: 110 });
+  assert.deepEqual(loadVideoConfig({ VIDEO_SAFE_BOTTOM: '400' }).safe, { top: 120, bottom: 400, side: 110 });
 });
 
 test('the safe area is in 1080p pixels whatever the resolution; the renderer scales it', () => {
-  assert.deepEqual(loadConfig({ ...base, VIDEO_RESOLUTION: '720p' }).video.safe, { top: 120, bottom: 260 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_RESOLUTION: '720p' }).video.safe, { top: 120, bottom: 260, side: 110 });
 });
 
 test('bad safe-area values fail startup naming the variable', () => {
-  for (const [name, value] of [['VIDEO_SAFE_TOP', '-1'], ['VIDEO_SAFE_TOP', '601'], ['VIDEO_SAFE_TOP', '12.5'], ['VIDEO_SAFE_TOP', 'x'], ['VIDEO_SAFE_BOTTOM', '-5'], ['VIDEO_SAFE_BOTTOM', 'big']]) {
+  for (const [name, value] of [['VIDEO_SAFE_TOP', '-1'], ['VIDEO_SAFE_TOP', '601'], ['VIDEO_SAFE_TOP', '12.5'], ['VIDEO_SAFE_TOP', 'x'], ['VIDEO_SAFE_BOTTOM', '-5'], ['VIDEO_SAFE_BOTTOM', 'big'], ['VIDEO_SAFE_SIDE', '-1'], ['VIDEO_SAFE_SIDE', '251'], ['VIDEO_SAFE_SIDE', '10.5'], ['VIDEO_SAFE_SIDE', 'wide']]) {
     assert.throws(() => loadConfig({ ...base, [name]: value }), new RegExp(name), `${name}=${value}`);
   }
   assert.throws(() => loadConfig({ ...base, VIDEO_SAFE_TOP: '500', VIDEO_SAFE_BOTTOM: '500' }), /VIDEO_SAFE_TOP \+ VIDEO_SAFE_BOTTOM must be at most 900/);
-  assert.doesNotThrow(() => loadConfig({ ...base, VIDEO_SAFE_TOP: '450', VIDEO_SAFE_BOTTOM: '450' }));
+  assert.doesNotThrow(() => loadConfig({ ...base, VIDEO_SAFE_TOP: '450', VIDEO_SAFE_BOTTOM: '450', VIDEO_SAFE_SIDE: '250' }));
 });

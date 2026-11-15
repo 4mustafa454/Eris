@@ -187,7 +187,7 @@ test('the CPU report: fps and share of one core over the interval, logged on the
 });
 
 test('the safe area from the video settings is handed to the render loop', async () => {
-  const { lp } = await setup({ deps: { video: { fps: 15, width: 1080, height: 1920, safe: { top: 120, bottom: 260 } } } });
-  assert.deepEqual(lp.rec.args.safe, { top: 120, bottom: 260 });
+  const { lp } = await setup({ deps: { video: { fps: 15, width: 1080, height: 1920, safe: { top: 120, bottom: 260, side: 110 } } } });
+  assert.deepEqual(lp.rec.args.safe, { top: 120, bottom: 260, side: 110 });
   assert.deepEqual([lp.rec.args.width, lp.rec.args.height], [1080, 1920]);
 });

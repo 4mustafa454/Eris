@@ -5,9 +5,10 @@ export const PORTRAIT = { width: 1080, height: 1920 };
 export const WIDTH = LANDSCAPE.width;
 export const HEIGHT = LANDSCAPE.height;
 export const isPortrait = frame => frame.height > frame.width;
-// Portrait only: FaceTime draws its own controls over the top and bottom of the picture. Values are in logical
-// px (1080×1920), so the 720p fallback scales them. Configurable with VIDEO_SAFE_TOP / VIDEO_SAFE_BOTTOM.
-export const DEFAULT_SAFE = { top: 120, bottom: 260 };
+// Portrait only: FaceTime draws its own controls over the top and bottom of the picture, and a tall phone screen
+// (about 9:19.5) crops the sides of a 1080-wide frame. Values are in logical px (1080×1920), so the 720p fallback
+// scales them. Configurable with VIDEO_SAFE_TOP / VIDEO_SAFE_BOTTOM / VIDEO_SAFE_SIDE.
+export const DEFAULT_SAFE = { top: 120, bottom: 260, side: 110 };
 // The caller's self-view floats in a corner: keep text out of a box about its size in the two right-hand corners of
 // the safe area (FaceTime's default side). CORNER_GAP is the breathing room between text and that box.
 export const CORNER = { width: 300, height: 360 };
@@ -38,5 +39,5 @@ export const GRID = { name: 44, badge: 32, task: 32, log: 28, logLines: 5, pad: 
 export const FOCUS = { name: 72, badge: 48, task: 44, reason: 44, log: 36, logLines: 10, pad: 48, stripe: 16, margin: 40, taskLines: 1, reasonLines: 2 };
 // Portrait: full-width stacked tiles with room for bigger text, and a narrow focus view that wraps instead of truncating.
 export const GRID_PORTRAIT = { name: 56, badge: 36, task: 36, log: 32, logLines: 5, pad: 32, gap: 24, stripe: 8, margin: 40 };
-export const FOCUS_PORTRAIT = { name: 88, badge: 56, task: 48, reason: 48, log: 38, logLines: 10, pad: 48, stripe: 16, margin: 40, taskLines: 3, reasonLines: 5 };
+export const FOCUS_PORTRAIT = { name: 88, badge: 56, task: 48, reason: 42, log: 38, logLines: 10, pad: 48, stripe: 16, margin: 40, taskLines: 3, reasonLines: 6 };
 export const MAX_TILES = 3;

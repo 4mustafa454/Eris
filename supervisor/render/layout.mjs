@@ -3,8 +3,9 @@
 //
 // model = { agents: AgentState[], logs: { [agentId]: string[] }, mode: 'grid'|'focus', focusId?: string,
 //           harness: 'ok'|'unreachable', harnessUrl?: string, lastSeen?: string }
-// frame = { width, height, safe?: { top, bottom } } in logical units: LANDSCAPE (default) or PORTRAIT from theme.mjs.
-//         Portrait keeps everything inside the safe area and text out of the right-hand corners (self-view).
+// frame = { width, height, safe?: { top, bottom, side } } in logical units: LANDSCAPE (default) or PORTRAIT from theme.mjs.
+//         Portrait keeps everything inside the safe area (top, bottom and sides) and text out of the right-hand
+//         corners of it (self-view).
 // ops   = { type:'rect', x, y, w, h, fill, radius? } | { type:'text', text, x, y, fontPx, bold, fill, maxWidth }
 import { COLORS, CORNER, CORNER_GAP, DEFAULT_SAFE, FOCUS, FOCUS_PORTRAIT, GRID, GRID_PORTRAIT, isPortrait, LANDSCAPE, MAX_TILES, stateStyle } from './theme.mjs';
 
@@ -47,15 +48,19 @@ export function wrapText(text, maxWidth, fontPx, maxLines, measure, bold = false
 
 /** The safe-area insets for a frame: portrait only (landscape has none). */
 export function safeOf(frame) {
-  if (!isPortrait(frame)) return { top: 0, bottom: 0 };
-  return { top: frame.safe?.top ?? DEFAULT_SAFE.top, bottom: frame.safe?.bottom ?? DEFAULT_SAFE.bottom };
+  if (!isPortrait(frame)) return { top: 0, bottom: 0, side: 0 };
+  return {
+    top: frame.safe?.top ?? DEFAULT_SAFE.top,
+    bottom: frame.safe?.bottom ?? DEFAULT_SAFE.bottom,
+    side: frame.safe?.side ?? DEFAULT_SAFE.side,
+  };
 }
 
 /** Where the caller's self-view may sit: the two right-hand corners of the safe area (portrait only). */
 export function cornerZones(frame) {
   if (!isPortrait(frame)) return [];
   const s = safeOf(frame);
-  const x = frame.width - CORNER.width;
+  const x = frame.width - s.side - CORNER.width;
   return [
     { x, y: s.top, w: CORNER.width, h: CORNER.height },
     { x, y: frame.height - s.bottom - CORNER.height, w: CORNER.width, h: CORNER.height },
@@ -116,20 +121,21 @@ export function layoutGrid(model, measure, frame = LANDSCAPE) {
   // Everything, panels included, stays inside the margins and (portrait) the safe area.
   const top = Math.max(T.margin, safe.top);
   const bottom = frame.height - Math.max(T.margin, safe.bottom);
+  const left = Math.max(T.margin, safe.side); // landscape: safe.side is 0, so this is the plain margin
   const agents = (model.agents ?? []).slice(0, MAX_TILES);
   const ops = [background(COLORS.bg, frame)];
   if (!agents.length) {
-    const w = rowWidth(frame, T.margin, top, T.name, frame.width - 2 * T.margin);
-    ops.push(textOp(measure, 'No agents', T.margin, top, T.name, COLORS.dim, w, true));
+    const w = rowWidth(frame, left, top, T.name, frame.width - 2 * left);
+    ops.push(textOp(measure, 'No agents', left, top, T.name, COLORS.dim, w, true));
     return ops;
   }
   const n = agents.length;
   // Landscape: tiles side by side, sharing the width. Portrait: stacked, full width, each sized as if there were
   // MAX_TILES so positions do not jump when an agent appears or goes away.
-  const tileW = portrait ? frame.width - 2 * T.margin : Math.floor((frame.width - 2 * T.margin - T.gap * (n - 1)) / n);
+  const tileW = portrait ? frame.width - 2 * left : Math.floor((frame.width - 2 * left - T.gap * (n - 1)) / n);
   const tileH = portrait ? Math.floor((bottom - top - T.gap * (MAX_TILES - 1)) / MAX_TILES) : bottom - top;
   agents.forEach((a, i) => {
-    const x = portrait ? T.margin : T.margin + i * (tileW + T.gap);
+    const x = portrait ? left : left + i * (tileW + T.gap);
     const y = portrait ? top + i * (tileH + T.gap) : top;
     const inner = tileW - T.stripe - 2 * T.pad;
     const tx = x + T.stripe + T.pad;
@@ -164,9 +170,10 @@ export function layoutFocus(model, measure, frame = LANDSCAPE) {
   const ops = [background(COLORS.bg, frame)];
   const stripeTop = portrait ? safe.top : 0;
   const limit = portrait ? frame.height - safe.bottom : frame.height - T.pad; // nothing is drawn below this
-  ops.push({ type: 'rect', x: 0, y: stripeTop, w: T.stripe, h: (portrait ? limit : frame.height) - stripeTop, fill: a.color || COLORS.dim });
-  const x = T.stripe + T.pad;
-  const inner = frame.width - x - T.pad;
+  const left = safe.side; // 0 in landscape
+  ops.push({ type: 'rect', x: left, y: stripeTop, w: T.stripe, h: (portrait ? limit : frame.height) - stripeTop, fill: a.color || COLORS.dim });
+  const x = left + T.stripe + T.pad;
+  const inner = frame.width - safe.side - x - T.pad;
   let y = portrait ? safe.top + 24 : T.pad;
   const b = badge(measure, a.state, 0, y, T.badge); // measured first: landscape puts the name beside it
   if (portrait) {
@@ -177,7 +184,7 @@ export function layoutFocus(model, measure, frame = LANDSCAPE) {
     y += b.h + 24;
   } else {
     ops.push(textOp(measure, a.name, x, y, T.name, COLORS.text, inner - b.w - 32, true));
-    ops.push(...badge(measure, a.state, frame.width - T.pad - b.w, y, T.badge).ops);
+    ops.push(...badge(measure, a.state, frame.width - safe.side - T.pad - b.w, y, T.badge).ops);
     y += b.h + 20;
   }
   const taskStep = Math.round(T.task * 1.4);
@@ -211,7 +218,7 @@ export function layoutFocus(model, measure, frame = LANDSCAPE) {
 
 export function layoutUnreachable(model, measure, frame = LANDSCAPE) {
   const portrait = isPortrait(frame);
-  const x = portrait ? 64 : 96;
+  const x = portrait ? Math.max(64, safeOf(frame).side) : 96;
   const w = frame.width - 2 * x;
   const ops = [background('#2a0a0a', frame)];
   const headFont = portrait ? 88 : 96;

@@ -2,8 +2,8 @@
 //   default: every fixture × (grid, focus per agent) plus the unreachable frame, in BOTH orientations
 //   --live : one grid + one focus per agent from the running harness (HARNESS_URL, default http://localhost:8787)
 // Output: supervisor/render/out/samples/portrait/ and .../landscape/ (gitignored), 1080×1920 and 1920×1080, plus
-// .../portrait-guides/: the same portrait frames with the safe-area bands (red) and the self-view corner zones
-// (magenta) drawn over them. Honours VIDEO_SAFE_TOP / VIDEO_SAFE_BOTTOM from the environment.
+// .../portrait-guides/: the same portrait frames with the safe-area bands (red, all four edges) and the self-view corner zones
+// (magenta) drawn over them. Honours VIDEO_SAFE_TOP / VIDEO_SAFE_BOTTOM / VIDEO_SAFE_SIDE from the environment.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
@@ -31,6 +31,8 @@ async function withGuides(png, width) {
   ctx.fillStyle = 'rgba(255, 60, 60, 0.28)';
   ctx.fillRect(0, 0, img.width, s.top * k);
   ctx.fillRect(0, (PORTRAIT.height - s.bottom) * k, img.width, s.bottom * k);
+  ctx.fillRect(0, s.top * k, s.side * k, (PORTRAIT.height - s.top - s.bottom) * k); // the sides, between top and bottom
+  ctx.fillRect((PORTRAIT.width - s.side) * k, s.top * k, s.side * k, (PORTRAIT.height - s.top - s.bottom) * k);
   ctx.fillStyle = 'rgba(255, 0, 255, 0.25)';
   for (const z of cornerZones(frame)) ctx.fillRect(z.x * k, z.y * k, z.w * k, z.h * k);
   return canvas.toBuffer('image/png');
