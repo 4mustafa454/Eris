@@ -190,7 +190,7 @@ CREATE TABLE settings (           -- non-secret config only; secrets live in har
 |---|---|---|---|
 | GET | `/tasks` | `?status=` | `Task[]` |
 | POST | `/tasks` | `{ "title", "instruction", "agent_id"? }` | `Task` |
-| PATCH | `/tasks/{id}` | `{ "status"?, "agent_id"? }` | `Task` (assigning starts it on that agent) |
+| PATCH | `/tasks/{id}` | `{ "status"?, "agent_id"? }` | `Task` (assigning starts it if the agent is idle/done, else `queued` — see §5.2.1) |
 
 **Approvals**
 | Method | Path | Body | Returns |
@@ -206,6 +206,13 @@ CREATE TABLE settings (           -- non-secret config only; secrets live in har
 | POST | `/settings/test/{provider}` | — | `{ ok, detail }` — `deepgram`, `openai`, `ollama`, `livekit`, `claude`, `codex`, `chert`, `ntfy` |
 
 **Live updates**: `GET /events` (SSE) → `{ "type": "agent"|"task"|"approval"|"session", "data": {...} }`.
+
+### 5.2.1 Task semantics (never silently overwrite work)
+- `POST /agents/{id}/task` = **steer the current task.** If the agent has a working/stuck task, the instruction is sent as a follow-up into the same engine session (`--resume` / `codex exec resume`); the task row is unchanged (stuck → working). If the agent is idle/done, it starts a new task with that instruction.
+- `POST /tasks` with `agent_id`, or `PATCH /tasks/{id}` assigning an agent = **new task.** If that agent is idle/done it starts now; if it is working/stuck the task is stored as `queued` and starts automatically when the current task reaches done.
+- Invariant: at most **one** working-or-stuck task per agent; any number queued, run in `created_at` order.
+- Replacing in-progress work only happens explicitly: pause/cancel the current task first (or a future "replace" action). Nothing ever overwrites a working task implicitly.
+- PM wording: steering → "Told agent 3." New task for a busy agent → "Agent 3 is busy; queued it next."
 
 ### 5.3 PM tools (`shared/pm/tools.json`, JSON Schema; same list for voice and web)
 - `get_status()` → GET /agents
