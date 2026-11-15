@@ -19,7 +19,7 @@ const harness = {
 const room = { localParticipant: { publishTrack: async () => ({ sid: 'bench' }), unpublishTrack: async () => {} } };
 
 const rows = [];
-for (const [label, width, height, fps] of [['1080p15', 1920, 1080, 15], ['1080p10', 1920, 1080, 10], ['720p15', 1280, 720, 15], ['720p10', 1280, 720, 10]]) {
+for (const [label, width, height, fps] of [['portrait 1080p15', 1080, 1920, 15], ['portrait 1080p10', 1080, 1920, 10], ['portrait 720p15', 720, 1280, 15], ['portrait 720p10', 720, 1280, 10], ['landscape 1080p15', 1920, 1080, 15]]) {
   const video = await startTeamVideo({
     room, harness, video: { fps, width, height }, log: quiet, statsEveryMs: 3_600_000,
     createLoop: async args => (await import('../render/index.mjs')).startRenderLoop({ ...args, serve: false }),

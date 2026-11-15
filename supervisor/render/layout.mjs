@@ -3,8 +3,9 @@
 //
 // model = { agents: AgentState[], logs: { [agentId]: string[] }, mode: 'grid'|'focus', focusId?: string,
 //           harness: 'ok'|'unreachable', harnessUrl?: string, lastSeen?: string }
+// frame = { width, height } in logical units: LANDSCAPE (default) or PORTRAIT from theme.mjs
 // ops   = { type:'rect', x, y, w, h, fill, radius? } | { type:'text', text, x, y, fontPx, bold, fill, maxWidth }
-import { COLORS, FOCUS, GRID, HEIGHT, MAX_TILES, stateStyle, WIDTH } from './theme.mjs';
+import { COLORS, FOCUS, FOCUS_PORTRAIT, GRID, GRID_PORTRAIT, isPortrait, LANDSCAPE, MAX_TILES, stateStyle } from './theme.mjs';
 
 const ELLIPSIS = '…';
 
@@ -60,7 +61,7 @@ function badge(measure, state, x, y, fontPx) {
   };
 }
 
-const background = fill => ({ type: 'rect', x: 0, y: 0, w: WIDTH, h: HEIGHT, fill });
+const background = (fill, frame) => ({ type: 'rect', x: 0, y: 0, w: frame.width, h: frame.height, fill });
 
 /** Which view actually gets drawn: focus falls back to grid when the agent is not there. */
 export function effectiveView(model) {
@@ -69,26 +70,31 @@ export function effectiveView(model) {
   return 'grid';
 }
 
-export function layout(model, measure) {
+export function layout(model, measure, frame = LANDSCAPE) {
   const view = effectiveView(model);
-  if (view === 'unreachable') return layoutUnreachable(model, measure);
-  return view === 'focus' ? layoutFocus(model, measure) : layoutGrid(model, measure);
+  if (view === 'unreachable') return layoutUnreachable(model, measure, frame);
+  return view === 'focus' ? layoutFocus(model, measure, frame) : layoutGrid(model, measure, frame);
 }
 
-export function layoutGrid(model, measure) {
-  const T = GRID;
+export function layoutGrid(model, measure, frame = LANDSCAPE) {
+  const portrait = isPortrait(frame);
+  const T = portrait ? GRID_PORTRAIT : GRID;
   const agents = (model.agents ?? []).slice(0, MAX_TILES);
-  const ops = [background(COLORS.bg)];
+  const ops = [background(COLORS.bg, frame)];
   if (!agents.length) {
-    ops.push(textOp(measure, 'No agents', T.margin, T.margin, T.name, COLORS.dim, WIDTH - 2 * T.margin, true));
+    ops.push(textOp(measure, 'No agents', T.margin, T.margin, T.name, COLORS.dim, frame.width - 2 * T.margin, true));
     return ops;
   }
   const n = agents.length;
-  const tileW = Math.floor((WIDTH - 2 * T.margin - T.gap * (n - 1)) / n);
-  const tileH = HEIGHT - 2 * T.margin;
+  // Landscape: tiles side by side, sharing the width. Portrait: stacked, full width, each sized as if there were
+  // MAX_TILES so positions do not jump when an agent appears or goes away.
+  const tileW = portrait ? frame.width - 2 * T.margin : Math.floor((frame.width - 2 * T.margin - T.gap * (n - 1)) / n);
+  const tileH = portrait
+    ? Math.floor((frame.height - 2 * T.margin - T.gap * (MAX_TILES - 1)) / MAX_TILES)
+    : frame.height - 2 * T.margin;
   agents.forEach((a, i) => {
-    const x = T.margin + i * (tileW + T.gap);
-    const y = T.margin;
+    const x = portrait ? T.margin : T.margin + i * (tileW + T.gap);
+    const y = portrait ? T.margin + i * (tileH + T.gap) : T.margin;
     const inner = tileW - T.stripe - 2 * T.pad;
     const tx = x + T.stripe + T.pad;
     ops.push({ type: 'rect', x, y, w: tileW, h: tileH, fill: COLORS.panel, radius: 16 });
@@ -101,32 +107,47 @@ export function layoutGrid(model, measure) {
     cy += b.h + 20;
     ops.push(textOp(measure, a.task ?? 'No task', tx, cy, T.task, a.task ? COLORS.text : COLORS.dim, inner));
     cy += Math.round(T.task * 1.5) + 12;
-    const lines = (model.logs?.[a.id] ?? []).slice(-T.logLines);
+    const lh = Math.round(T.log * 1.45);
+    const room = Math.max(0, Math.floor((y + tileH - T.pad - cy) / lh));
+    const lines = (model.logs?.[a.id] ?? []).slice(-Math.min(T.logLines, room));
     for (const line of lines) {
       ops.push(textOp(measure, line, tx, cy, T.log, COLORS.dim, inner));
-      cy += Math.round(T.log * 1.45);
+      cy += lh;
     }
   });
   return ops;
 }
 
-export function layoutFocus(model, measure) {
-  const T = FOCUS;
+export function layoutFocus(model, measure, frame = LANDSCAPE) {
+  const portrait = isPortrait(frame);
+  const T = portrait ? FOCUS_PORTRAIT : FOCUS;
   const a = model.agents.find(x => x.id === model.focusId);
-  const ops = [background(COLORS.bg)];
-  ops.push({ type: 'rect', x: 0, y: 0, w: T.stripe, h: HEIGHT, fill: a.color || COLORS.dim });
+  const ops = [background(COLORS.bg, frame)];
+  ops.push({ type: 'rect', x: 0, y: 0, w: T.stripe, h: frame.height, fill: a.color || COLORS.dim });
   const x = T.stripe + T.pad;
-  const inner = WIDTH - x - T.pad;
+  const inner = frame.width - x - T.pad;
   let y = T.pad;
-  const b = badge(measure, a.state, 0, y, T.badge); // measured first so the name can use the space left of it
-  const nameW = inner - b.w - 32;
-  ops.push(textOp(measure, a.name, x, y, T.name, COLORS.text, nameW, true));
-  ops.push(...badge(measure, a.state, WIDTH - T.pad - b.w, y, T.badge).ops);
-  y += b.h + 20;
-  ops.push(textOp(measure, a.task ?? 'No task', x, y, T.task, a.task ? COLORS.text : COLORS.dim, inner));
-  y += Math.round(T.task * 1.4) + 16;
+  const b = badge(measure, a.state, 0, y, T.badge); // measured first: landscape puts the name beside it
+  if (portrait) {
+    // narrow frame: name, then the badge under it
+    ops.push(textOp(measure, a.name, x, y, T.name, COLORS.text, inner, true));
+    y += Math.round(T.name * 1.25);
+    ops.push(...badge(measure, a.state, x, y, T.badge).ops);
+    y += b.h + 24;
+  } else {
+    ops.push(textOp(measure, a.name, x, y, T.name, COLORS.text, inner - b.w - 32, true));
+    ops.push(...badge(measure, a.state, frame.width - T.pad - b.w, y, T.badge).ops);
+    y += b.h + 20;
+  }
+  const taskLines = a.task ? wrapText(a.task, inner, T.task, T.taskLines, measure) : ['No task'];
+  const taskStep = Math.round(T.task * 1.4);
+  for (const line of taskLines) {
+    ops.push({ type: 'text', text: line, x, y, fontPx: T.task, bold: false, fill: a.task ? COLORS.text : COLORS.dim, maxWidth: inner });
+    y += taskStep;
+  }
+  y += 16;
   if (a.state === 'stuck' && a.stuck_reason) {
-    const lines = wrapText(`BLOCKED: ${a.stuck_reason}`, inner - 48, T.reason, 2, measure, true);
+    const lines = wrapText(`BLOCKED: ${a.stuck_reason}`, inner - 48, T.reason, T.reasonLines, measure, true);
     const lh = Math.round(T.reason * 1.25);
     const boxH = lines.length * lh + 32;
     ops.push({ type: 'rect', x, y, w: inner, h: boxH, fill: COLORS.warn, radius: 12 });
@@ -134,7 +155,7 @@ export function layoutFocus(model, measure) {
     y += boxH + 24;
   }
   const lh = Math.round(T.log * 1.4);
-  const room = Math.max(0, Math.floor((HEIGHT - T.pad - y) / lh));
+  const room = Math.max(0, Math.floor((frame.height - T.pad - y) / lh));
   const lines = (model.logs?.[a.id] ?? []).slice(-Math.min(T.logLines, room));
   for (const line of lines) {
     ops.push(textOp(measure, line, x, y, T.log, COLORS.dim, inner));
@@ -143,13 +164,22 @@ export function layoutFocus(model, measure) {
   return ops;
 }
 
-export function layoutUnreachable(model, measure) {
-  const x = 96, w = WIDTH - 2 * x;
-  const ops = [background('#2a0a0a')];
-  ops.push(textOp(measure, '! HARNESS UNREACHABLE', x, 300, 96, '#ffffff', w, true));
-  ops.push(textOp(measure, `Cannot reach ${model.harnessUrl ?? 'the harness'}`, x, 440, 44, '#ffd0d0', w));
-  ops.push(textOp(measure, 'Retrying…', x, 520, 44, '#ffd0d0', w));
-  ops.push(textOp(measure, model.lastSeen ? `Last data: ${model.lastSeen}` : 'No data received yet', x, 600, 44, '#ffd0d0', w));
+export function layoutUnreachable(model, measure, frame = LANDSCAPE) {
+  const portrait = isPortrait(frame);
+  const x = portrait ? 64 : 96;
+  const w = frame.width - 2 * x;
+  const ops = [background('#2a0a0a', frame)];
+  const headFont = portrait ? 88 : 96;
+  let y = portrait ? 520 : 300;
+  for (const line of wrapText('! HARNESS UNREACHABLE', w, headFont, 2, measure, true)) {
+    ops.push({ type: 'text', text: line, x, y, fontPx: headFont, bold: true, fill: '#ffffff', maxWidth: w });
+    y += Math.round(headFont * 1.25);
+  }
+  y += 24;
+  for (const line of [`Cannot reach ${model.harnessUrl ?? 'the harness'}`, 'Retrying…', model.lastSeen ? `Last data: ${model.lastSeen}` : 'No data received yet']) {
+    ops.push(textOp(measure, line, x, y, 44, '#ffd0d0', w));
+    y += 80;
+  }
   return ops;
 }
 

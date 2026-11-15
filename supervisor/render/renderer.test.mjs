@@ -111,3 +111,70 @@ test('a 1280×720 renderer scales the same layout: right size, stripe where it s
   const f = r.render(focus('agent-1'));
   assert.ok(f.changed && f.ms < 30, `720p focus ${f.ms} ms`);
 });
+
+// --- portrait ---------------------------------------------------------------------------------------------------
+
+const pixel = (rgba, w, x, y) => [...rgba.subarray((y * w + x) * 4, (y * w + x) * 4 + 3)];
+
+test('portrait 1080×1920: buffer, PNG and JPEG sizes; the three tiles stack with the agent colours down the left edge', async () => {
+  const r = createRenderer({ width: 1080, height: 1920, log: { warn() {} } });
+  const { rgba } = r.render(grid());
+  assert.equal(rgba.length, 1080 * 1920 * 4);
+  for (const [buf, name] of [[r.png(), 'png'], [r.jpeg(), 'jpeg']]) {
+    const img = await loadImage(buf);
+    assert.deepEqual([img.width, img.height], [1080, 1920], name);
+  }
+  // tiles are 597 high with a 24 gap from y=40: stripes (x 40..48) at 40..637, 661..1258, 1282..1879
+  assert.deepEqual(pixel(rgba, 1080, 44, 300), [0x7f, 0x77, 0xdd], 'Agent 1');
+  assert.deepEqual(pixel(rgba, 1080, 44, 900), [0x1d, 0x9e, 0x75], 'Agent 2');
+  assert.deepEqual(pixel(rgba, 1080, 44, 1500), [0xd8, 0x5a, 0x30], 'Agent 3');
+  assert.deepEqual(pixel(rgba, 1080, 44, 650), [0x11, 0x14, 0x18], 'background in the gap between tiles');
+  writeFileSync(`${OUT}three-grid-portrait.png`, r.png());
+});
+
+test('portrait 720×1280 is the same picture scaled by 2/3', async () => {
+  const r = createRenderer({ width: 720, height: 1280, log: { warn() {} } });
+  const { rgba } = r.render(grid());
+  assert.equal(rgba.length, 720 * 1280 * 4);
+  const img = await loadImage(r.png());
+  assert.deepEqual([img.width, img.height], [720, 1280]);
+  assert.deepEqual(pixel(rgba, 720, 29, 200), [0x7f, 0x77, 0xdd], 'Agent 1 stripe');
+  assert.deepEqual(pixel(rgba, 720, 29, 600), [0x1d, 0x9e, 0x75], 'Agent 2 stripe');
+  assert.deepEqual(pixel(rgba, 720, 29, 1000), [0xd8, 0x5a, 0x30], 'Agent 3 stripe');
+  writeFileSync(`${OUT}three-grid-portrait-720.png`, r.png());
+});
+
+test('portrait: mode switching and focus change the output; the unreachable frame differs; each is saved as a PNG', () => {
+  const r = createRenderer({ width: 1080, height: 1920, log: { warn() {} } });
+  const g = Uint8Array.from(r.render(grid()).rgba);
+  const f1 = Uint8Array.from(r.render(focus('agent-1')).rgba);
+  writeFileSync(`${OUT}three-focus-portrait.png`, r.png());
+  const f2 = Uint8Array.from(r.render(focus('agent-2')).rgba);
+  assert.ok(!same(g, f1) && !same(f1, f2) && !same(g, f2));
+  const u = r.render(unreachable);
+  assert.ok(!same(u.rgba, g) && !same(u.rgba, f1));
+  writeFileSync(`${OUT}unreachable-portrait.png`, r.png());
+  assert.ok(same(r.render(grid()).rgba, g), 'back to the grid reproduces it');
+  for (const [name, m] of Object.entries(MODELS)) {
+    r.render({ mode: 'grid', harness: 'ok', ...m });
+    writeFileSync(`${OUT}${name}-grid-portrait.png`, r.png());
+    r.render({ mode: 'focus', focusId: m.agents[0].id, harness: 'ok', ...m });
+    writeFileSync(`${OUT}${name}-focus-portrait.png`, r.png());
+  }
+});
+
+test('portrait render time stays under 30 ms (median of 10 forced redraws)', () => {
+  const r = createRenderer({ width: 1080, height: 1920, log: { warn() {} } });
+  for (const [name, mk] of [['grid', () => grid('three')], ['focus', () => focus('agent-1')]]) {
+    const times = [];
+    for (let i = 0; i < 10; i++) {
+      r.render(unreachable);
+      const m = mk();
+      m.logs = { ...m.logs, 'agent-1': [...m.logs['agent-1'], `tick ${i}`] };
+      times.push(r.render(m).ms);
+    }
+    times.sort((a, b) => a - b);
+    console.log(`  portrait ${name} render: median ${times[5].toFixed(1)} ms, max ${times[9].toFixed(1)} ms`);
+    assert.ok(times[5] < 30, `${name} median ${times[5]} ms`);
+  }
+});

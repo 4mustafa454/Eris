@@ -48,7 +48,7 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
 3. Say "Status?" The PM calls `get_status` and answers in one or two sentences.
 4. Say "What is agent 2 doing?" It calls `explain_agent` and answers in one sentence.
 5. Say "What is agent 7 doing?" It says Agent 7 doesn't exist.
-6. Video: the Agent Console should show the team grid (3 tiles) as the agent's camera. Say "show me agent 2": the picture
+6. Video: the Agent Console should show the team grid (3 tiles stacked vertically, a portrait picture) as the agent's camera. Say "show me agent 2": the picture
    switches to Agent 2 full screen and the PM answers in one short sentence. "Show me the grid" goes back. "Show me agent 9":
    "There's no agent 9." and the picture does not change. A new call starts on the grid again.
    "Tell agent 1 to use the v2 endpoint" still gets "not available yet" (M3).
@@ -68,8 +68,10 @@ Reset the mock data first so old test calls do not clutter the picture: stop the
 
 ## Team view renderer (M2)
 
-`render/` draws the team as 1920×1080 frames (1280×720 with `VIDEO_RESOLUTION=720p`) from `GET /agents` and
-`GET /agents/{id}/log` (polled at 2 Hz): a grid of up to 3 agents, or one agent full-frame. It redraws only when what is
+`render/` draws the team from `GET /agents` and `GET /agents/{id}/log` (polled at 2 Hz): a grid of up to 3 agents, or one
+agent full-frame. The default is **portrait**, 1080×1920 (720×1280 with `VIDEO_RESOLUTION=720p`), because a phone shows
+the agent in a portrait tile and crops a landscape picture to its middle. In portrait the grid stacks the tiles
+vertically at full width. `VIDEO_ORIENTATION=landscape` gives 1920×1080 / 1280×720 with the tiles side by side. It redraws only when what is
 drawn changes, and warns if a redraw takes over 30 ms. The renderer needs no keys.
 
 On a call, `src/video.mjs` publishes it as the agent's camera track (same participant as the voice, 15 fps by default,
@@ -79,7 +81,7 @@ like any other tool call). The same view is also at `http://localhost:8788/frame
 is running.
 
 ```sh
-npm run render:samples            # PNGs for every fixture and mode → render/out/samples/ (gitignored)
+npm run render:samples            # PNGs for every fixture and mode, both orientations → render/out/samples/{portrait,landscape}/ (gitignored)
 npm run render:samples -- --live  # the same from the running harness (HARNESS_URL, default :8787)
 npm run frames                    # serve http://localhost:8788/frame.jpg from the harness; "g" / "f 2" switch mode
 npm run bench:video               # CPU of render + frame hand-off at 1080p/720p and 15/10 fps (no encoder; see its header)

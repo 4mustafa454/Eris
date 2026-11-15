@@ -80,11 +80,17 @@ export function buildTurnHandling(turn = TURN_DEFAULTS) {
   };
 }
 
-/** Camera track settings (all optional). 1280×720 and/or 10 fps are the fallbacks if the call costs too much CPU. */
-export const VIDEO_DEFAULTS = { fps: 15, resolution: '1080p' };
-export const RESOLUTIONS = { '1080p': { width: 1920, height: 1080 }, '720p': { width: 1280, height: 720 } };
+/**
+ * Camera track settings (all optional). Portrait is the default because a phone shows the agent in a portrait tile
+ * and crops a landscape picture to its middle. 720p and/or 10 fps are the fallbacks if a call costs too much CPU.
+ */
+export const VIDEO_DEFAULTS = { fps: 15, resolution: '1080p', orientation: 'portrait' };
+export const VIDEO_SIZES = {
+  portrait: { '1080p': { width: 1080, height: 1920 }, '720p': { width: 720, height: 1280 } },
+  landscape: { '1080p': { width: 1920, height: 1080 }, '720p': { width: 1280, height: 720 } },
+};
 /** Every env var the video settings read (for .env.example). */
-export const VIDEO_ENV = ['VIDEO_FPS', 'VIDEO_RESOLUTION'];
+export const VIDEO_ENV = ['VIDEO_FPS', 'VIDEO_RESOLUTION', 'VIDEO_ORIENTATION'];
 
 function readVideo(env, problems) {
   let fps = VIDEO_DEFAULTS.fps;
@@ -97,10 +103,24 @@ function readVideo(env, problems) {
   let resolution = VIDEO_DEFAULTS.resolution;
   const rawRes = get(env, 'VIDEO_RESOLUTION')?.toLowerCase();
   if (rawRes !== undefined) {
-    if (RESOLUTIONS[rawRes]) resolution = rawRes;
-    else problems.push(`VIDEO_RESOLUTION must be one of: ${Object.keys(RESOLUTIONS).join(', ')}`);
+    if (VIDEO_SIZES.portrait[rawRes]) resolution = rawRes;
+    else problems.push(`VIDEO_RESOLUTION must be one of: ${Object.keys(VIDEO_SIZES.portrait).join(', ')}`);
   }
-  return { fps, resolution, ...RESOLUTIONS[resolution] };
+  let orientation = VIDEO_DEFAULTS.orientation;
+  const rawOrientation = get(env, 'VIDEO_ORIENTATION')?.toLowerCase();
+  if (rawOrientation !== undefined) {
+    if (VIDEO_SIZES[rawOrientation]) orientation = rawOrientation;
+    else problems.push(`VIDEO_ORIENTATION must be one of: ${Object.keys(VIDEO_SIZES).join(', ')}`);
+  }
+  return { fps, resolution, orientation, ...VIDEO_SIZES[orientation][resolution] };
+}
+
+/** Only the video settings, for tools that run without provider keys (npm run frames). Throws on bad values. */
+export function loadVideoConfig(env = process.env) {
+  const problems = [];
+  const video = readVideo(env, problems);
+  if (problems.length) throw new Error(`Invalid video configuration:\n- ${problems.join('\n- ')}`);
+  return video;
 }
 
 export const registries = {

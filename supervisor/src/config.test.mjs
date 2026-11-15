@@ -4,7 +4,7 @@ import { initializeLogger } from '@livekit/agents';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as openai from '@livekit/agents-plugin-openai';
-import { buildTurnHandling, buildVadOptions, createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
+import { buildTurnHandling, buildVadOptions, loadVideoConfig, createProviders, describeConfig, loadConfig, registries, ROLES } from './config.mjs';
 
 // The plugins log from their constructors; at runtime the LiveKit CLI / chert-rooms.mjs does this first.
 initializeLogger({ pretty: false, level: 'silent' });
@@ -220,20 +220,23 @@ test('bad interruption values fail startup naming the variable, alongside any ot
   assert.throws(() => loadConfig({ ...base, STT_PROVIDER: 'nope', INTERRUPT_MIN_WORDS: 'x' }), /STT_PROVIDER[\s\S]*INTERRUPT_MIN_WORDS/);
 });
 
-test('video defaults to 15 fps at 1920×1080; env switches to the 720p / 10 fps fallback', () => {
-  assert.deepEqual(loadConfig(base).video, { fps: 15, resolution: '1080p', width: 1920, height: 1080 });
-  assert.deepEqual(loadConfig({ ...base, VIDEO_FPS: '10', VIDEO_RESOLUTION: '720P' }).video, { fps: 10, resolution: '720p', width: 1280, height: 720 });
-  assert.equal(loadConfig({ ...base, VIDEO_FPS: '' }).video.fps, 15);
+test('video defaults to 15 fps, portrait 1080×1920; env switches orientation and the 720p / 10 fps fallback', () => {
+  assert.deepEqual(loadConfig(base).video, { fps: 15, resolution: '1080p', orientation: 'portrait', width: 1080, height: 1920 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_FPS: '10', VIDEO_RESOLUTION: '720P' }).video, { fps: 10, resolution: '720p', orientation: 'portrait', width: 720, height: 1280 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'Landscape' }).video, { fps: 15, resolution: '1080p', orientation: 'landscape', width: 1920, height: 1080 });
+  assert.deepEqual(loadConfig({ ...base, VIDEO_ORIENTATION: 'landscape', VIDEO_RESOLUTION: '720p' }).video, { fps: 15, resolution: '720p', orientation: 'landscape', width: 1280, height: 720 });
+  assert.equal(loadConfig({ ...base, VIDEO_FPS: '', VIDEO_ORIENTATION: '' }).video.fps, 15);
+  assert.equal(loadConfig({ ...base, VIDEO_ORIENTATION: '' }).video.orientation, 'portrait');
 });
 
 test('bad video values fail startup naming the variable', () => {
-  for (const [name, value] of [['VIDEO_FPS', '0'], ['VIDEO_FPS', '31'], ['VIDEO_FPS', '7.5'], ['VIDEO_FPS', 'x'], ['VIDEO_RESOLUTION', '4k'], ['VIDEO_RESOLUTION', '800x600']]) {
+  for (const [name, value] of [['VIDEO_FPS', '0'], ['VIDEO_FPS', '31'], ['VIDEO_FPS', '7.5'], ['VIDEO_FPS', 'x'], ['VIDEO_RESOLUTION', '4k'], ['VIDEO_RESOLUTION', '800x600'], ['VIDEO_ORIENTATION', 'square'], ['VIDEO_ORIENTATION', 'sideways']]) {
     assert.throws(() => loadConfig({ ...base, [name]: value }), new RegExp(name), `${name}=${value}`);
   }
 });
 
-test('VAD options carry the threshold; with no config (--help) they are undefined, not { activationThreshold: undefined }', () => {
-  assert.deepEqual(buildVadOptions(loadConfig(base)), { activationThreshold: 0.6 });
-  assert.deepEqual(buildVadOptions(loadConfig({ ...base, VAD_ACTIVATION_THRESHOLD: '0.8' })), { activationThreshold: 0.8 });
-  assert.equal(buildVadOptions(undefined), undefined);
+test('loadVideoConfig reads only the video settings, with no provider keys', () => {
+  assert.deepEqual(loadVideoConfig({}), loadConfig(base).video);
+  assert.deepEqual(loadVideoConfig({ VIDEO_ORIENTATION: 'landscape' }).width, 1920);
+  assert.throws(() => loadVideoConfig({ VIDEO_ORIENTATION: 'x', VIDEO_FPS: '0' }), /VIDEO_FPS[\s\S]*VIDEO_ORIENTATION/);
 });

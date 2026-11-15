@@ -4,7 +4,7 @@
 import { createCanvas } from '@napi-rs/canvas';
 import { registerFonts } from './fonts.mjs';
 import { layout, modelKey } from './layout.mjs';
-import { FONT_STACK, HEIGHT, WIDTH } from './theme.mjs';
+import { FONT_STACK, frameFor, HEIGHT, orientationOf, WIDTH } from './theme.mjs';
 
 export const RENDER_BUDGET_MS = 30;
 
@@ -20,10 +20,11 @@ function rect(ctx, o) {
 }
 
 /**
- * @param {{ width?: number, height?: number, log?: Pick<Console,'warn'> }} [options]  16:9 sizes only (1920×1080, 1280×720)
+ * @param {{ width?: number, height?: number, log?: Pick<Console,'warn'> }} [options]  1920×1080 / 1280×720 (landscape) or 1080×1920 / 720×1280 (portrait)
  */
 export function createRenderer({ width = WIDTH, height = HEIGHT, log = console } = {}) {
   registerFonts();
+  const frame = frameFor(orientationOf(width, height)); // logical size: 1920×1080 or 1080×1920
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
   ctx.textBaseline = 'top';
@@ -36,9 +37,9 @@ export function createRenderer({ width = WIDTH, height = HEIGHT, log = console }
   let lastRenderMs = 0;
 
   function draw(model) {
-    // Layout is always in 1920×1080 units; a smaller canvas (the 1280×720 fallback) just scales it.
-    ctx.setTransform(width / WIDTH, 0, 0, height / HEIGHT, 0, 0);
-    for (const o of layout(model, measure)) {
+    // Layout is in logical units (see theme.mjs); a smaller canvas (the 720p fallback) just scales it.
+    ctx.setTransform(width / frame.width, 0, 0, height / frame.height, 0, 0);
+    for (const o of layout(model, measure, frame)) {
       if (o.type === 'rect') rect(ctx, o);
       else {
         ctx.font = `${o.bold ? 'bold ' : ''}${o.fontPx}px ${FONT_STACK}`;
