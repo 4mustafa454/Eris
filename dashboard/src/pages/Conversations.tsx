@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   chat, getSession, HarnessError, search, type ActionRow, type SearchHit, type Session, type SessionDetail,
 } from '../lib/harness'
+import { useAsk } from '../lib/ask'
 import { useLive } from '../lib/store'
 import { Card, Pending, ago, isPending } from '../lib/ui'
 
@@ -14,8 +15,8 @@ const SUGGESTIONS = [
 ]
 
 /** Start a conversation with the PM through POST /chat (§5.2). The harness creates the session and logs both turns. */
-function NewChat({ onCreated }: { onCreated: (id: string) => void }) {
-  const [text, setText] = useState('')
+function NewChat({ onCreated, initial }: { onCreated: (id: string) => void; initial?: string }) {
+  const [text, setText] = useState(initial ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<{ pending: boolean; detail: string } | null>(null)
   const send = async (t: string) => {
@@ -31,6 +32,13 @@ function NewChat({ onCreated }: { onCreated: (id: string) => void }) {
       setBusy(false)
     }
   }
+  const started = useRef(false)
+  useEffect(() => {
+    if (initial && !started.current) {
+      started.current = true
+      void send(initial)
+    }
+  }, [])
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col justify-center gap-6">
       <div className="text-center">
@@ -202,7 +210,9 @@ function Detail({ id }: { id: string }) {
 
 export default function Conversations() {
   const { sessions } = useLive()
+  const { ask, clearAsk } = useAsk()
   const [sel, setSel] = useState<string | null>(null)
+  const [question, setQuestion] = useState<string | undefined>()
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<SearchHit[] | null>(null)
   const [searchState, setSearchState] = useState<'idle' | 'pending' | 'failed'>('idle')
@@ -216,7 +226,11 @@ export default function Conversations() {
     }, 300)
     return () => clearTimeout(h)
   }, [q])
-  useEffect(() => { if (!sel && sessions.length) setSel(sessions[0].id) }, [sessions, sel])
+  useEffect(() => { if (!sel && sessions.length && !ask) setSel(sessions[0].id) }, [sessions, sel, ask])
+  // "Ask Eris" from the stuck banner: open a new chat and send the question once
+  useEffect(() => {
+    if (ask) { setQuestion(ask); setSel(NEW); clearAsk() }
+  }, [ask, clearAsk])
 
   const byId = new Map(sessions.map((s) => [s.id, s]))
   const shown = hits ? hits.map((h) => byId.get(h.session_id)).filter((s): s is Session => !!s) : sessions
@@ -249,7 +263,7 @@ export default function Conversations() {
         {!sessions.length && <p className="text-sm text-muted">No conversations yet. Call Eris or open a chat.</p>}
       </aside>
       <section>
-        {sel === NEW ? <NewChat key="new" onCreated={setSel} /> : sel ? <Detail id={sel} key={sel} /> : <p className="text-muted">Pick a conversation.</p>}
+        {sel === NEW ? <NewChat key={question ?? 'new'} initial={question} onCreated={(id) => { setQuestion(undefined); setSel(id) }} /> : sel ? <Detail id={sel} key={sel} /> : <p className="text-muted">Pick a conversation.</p>}
       </section>
     </div>
   )

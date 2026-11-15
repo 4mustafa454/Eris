@@ -1,3 +1,4 @@
+import { useAsk } from './ask'
 import { useLive } from './store'
 import { STATE_COLOR } from './ui'
 
@@ -22,6 +23,28 @@ export function AgentPills() {
           </span>
         )
       })}
+    </div>
+  )
+}
+
+/** Red strip for the first stuck or errored agent, with its reason and a one-click question to Eris. */
+export function StuckBanner() {
+  const { agents } = useLive()
+  const { askEris } = useAsk()
+  const a = agents.find((x) => x.state === 'stuck' || x.state === 'error')
+  if (!a) return null
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-3 border-b border-bad/30 bg-bad/10 px-5 py-2 text-sm">
+      <span className="size-2 shrink-0 animate-pulse rounded-full bg-bad" aria-hidden="true" />
+      <span className="min-w-0 flex-1 text-red-200">
+        <strong className="font-medium">{a.name} is {a.state}.</strong> {a.stuck_reason ?? a.summary ?? ''}
+      </span>
+      <button
+        onClick={() => askEris(`What is ${a.name} ${a.state === 'error' ? 'failing on' : 'stuck on'}?`)}
+        className="rounded-full border border-bad/50 px-3 py-1 text-xs text-red-100 hover:bg-bad/20"
+      >
+        Ask Eris
+      </button>
     </div>
   )
 }

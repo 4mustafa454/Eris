@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { LiveProvider, useLive } from './lib/store'
 import Live from './pages/Live'
-import { AgentPills } from './lib/status'
+import { AskProvider } from './lib/ask'
+import { AgentPills, StuckBanner } from './lib/status'
 import Approvals from './pages/Approvals'
 import Conversations from './pages/Conversations'
 import Tasks from './pages/Tasks'
@@ -61,6 +62,7 @@ function Shell() {
         </div>
       </header>
       <div className="meander" aria-hidden="true" />
+      <StuckBanner />
       {!online && (
         <div role="alert" className="border-b border-bad/40 bg-bad/10 px-5 py-2 text-sm text-bad">
           Can&apos;t reach the harness. Start it with{' '}
@@ -81,7 +83,9 @@ function Shell() {
 export default function App() {
   return (
     <LiveProvider>
-      <Shell />
+      <AskProvider>
+        <Shell />
+      </AskProvider>
     </LiveProvider>
   )
 }
